@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QueueTrack</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Loading Screen -->
+    <div class="loading-screen" id="loadingScreen">
+        <div class="loading-content">
+            <div class="loading-logo">QueueTrack</div>
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Loading your data...</div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="mockup">
+            <!-- Top Bar -->
+            <div class="top-bar">
+                <div class="left-section">
+                    <button class="back-btn" id="backBtn" style="display: none;">🏠</button>
+                    <div class="app-title">QueueTrack</div>
+                    <div class="search-wrapper" id="searchWrapper">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" class="search-input" id="searchInput" placeholder="Search emails...">
+                    </div>
+                </div>
+                <div class="right-section">
+                    <div class="mode-toggle">
+                        <button class="mode-btn active" id="lightBtn">☀️</button>
+                        <button class="mode-btn" id="darkBtn">🌙</button>
+                    </div>
+                    <button class="settings-btn">⚙️</button>
+                    <button class="import-btn" id="importBtn">Import CSV</button>
+                </div>
+            </div>
+
+            <!-- Main Content -->
+            <div class="main-content" id="mainContent">
+                <div class="stats-dashboard">
+                    <div class="stat-card">
+                        <div class="stat-label">Total Accounts</div>
+                        <div class="stat-value" id="totalAccounts">0</div>
+                    </div>
+                    <div class="stat-card clickable" id="bestPositionCard">
+                        <div class="stat-label">Best Position</div>
+                        <div class="stat-value" id="bestPosition">—</div>
+                    </div>
+                </div>
+
+                <div class="filter-chips">
+                    <button class="filter-chip active" data-filter="all">All</button>
+                    <button class="filter-chip" data-filter="instants">⚡ Instants</button>
+                    <button class="filter-chip" data-filter="juice">🔥 Juice</button>
+                    <button class="filter-chip" data-filter="excellent">⭐ Excellent</button>
+                    <button class="filter-chip" data-filter="improving">↑ Improving</button>
+                    <button class="filter-chip" data-filter="declining">↓ Declining</button>
+                </div>
+
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="min-width: 250px;">Email</th>
+                                <th>Change %</th>
+                                <th>Most Recent</th>
+                                <th>-2</th>
+                                <th>-3</th>
+                                <th>-4</th>
+                                <th>-5</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody">
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 40px; color: #86868b;">
+                                    No data available. Import a CSV to get started!
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Timeline Content -->
+            <div class="timeline-page" id="timelinePage" style="display: none;">
+                <div class="timeline-header">
+                    <div class="timeline-email" id="timelineEmail">—</div>
+                    <div class="timeline-subtitle" id="timelineSubtitle">—</div>
+                </div>
+
+                <div class="timeline-stats">
+                    <div class="timeline-stat">
+                        <div class="timeline-stat-label">Best Position</div>
+                        <div class="timeline-stat-value" id="timelineBest">—</div>
+                    </div>
+                    <div class="timeline-stat">
+                        <div class="timeline-stat-label">Worst Position</div>
+                        <div class="timeline-stat-value" id="timelineWorst">—</div>
+                    </div>
+                    <div class="timeline-stat">
+                        <div class="timeline-stat-label">Average</div>
+                        <div class="timeline-stat-value" id="timelineAvg">—</div>
+                    </div>
+                    <div class="timeline-stat">
+                        <div class="timeline-stat-label">Total Tests</div>
+                        <div class="timeline-stat-value" id="timelineTotal">—</div>
+                    </div>
+                </div>
+
+                <div class="graph-container">
+                    <div class="graph-canvas">
+                        <div class="y-axis">
+                            <div class="y-label">0%</div>
+                            <div class="y-label">25%</div>
+                            <div class="y-label">50%</div>
+                            <div class="y-label">75%</div>
+                            <div class="y-label">100%</div>
+                        </div>
+
+                        <div class="grid-lines">
+                            <div class="grid-line" style="top: 0%;"></div>
+                            <div class="grid-line" style="top: 25%;"></div>
+                            <div class="grid-line" style="top: 50%;"></div>
+                            <div class="grid-line" style="top: 75%;"></div>
+                            <div class="grid-line" style="top: 100%;"></div>
+                        </div>
+
+                        <div class="graph-area" id="graphArea">
+                            <svg width="100%" height="100%" viewBox="0 0 100 100" preserveAspectRatio="none">
+                                <polyline class="graph-line" id="graphLine" points="" vector-effect="non-scaling-stroke" />
+                            </svg>
+                        </div>
+
+                        <div class="x-axis" id="xAxis"></div>
+                    </div>
+
+                    <div class="point-tooltip" id="pointTooltip">
+                        <div class="tooltip-row">
+                            <span class="tooltip-label">Test #:</span>
+                            <span class="tooltip-value" id="tooltipTest">—</span>
+                        </div>
+                        <div class="tooltip-row">
+                            <span class="tooltip-label">Date:</span>
+                            <span class="tooltip-value" id="tooltipDate">—</span>
+                        </div>
+                        <div class="tooltip-row">
+                            <span class="tooltip-label">Queue:</span>
+                            <span class="tooltip-value" id="tooltipQueue">—</span>
+                        </div>
+                        <div class="tooltip-row">
+                            <span class="tooltip-label">Queue %:</span>
+                            <span class="tooltip-value" id="tooltipPercent">—</span>
+                        </div>
+                        <div class="tooltip-row">
+                            <span class="tooltip-label">Change:</span>
+                            <span class="tooltip-value" id="tooltipChange">—</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Panel -->
+    <div class="settings-panel" id="settingsPanel">
+        <div class="settings-header">
+            <div class="settings-title">Settings</div>
+            <button class="close-settings">✕</button>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-section-title">Preferences</div>
+            
+            <div class="setting-item">
+                <label class="setting-label">Juice Threshold (%)</label>
+                <input type="number" class="setting-input" id="juicePercent" value="10" min="0" max="100">
+                <div class="setting-description">Maximum queue % to qualify as "Juice"</div>
+            </div>
+
+            <div class="setting-item">
+                <label class="setting-label">Minimum Anchor for Juice</label>
+                <input type="number" class="setting-input" id="juiceAnchor" value="50000" min="0" step="1000">
+                <div class="setting-description">Minimum queue anchor size for "Juice"</div>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-section-title">Color Ranges</div>
+            <div style="font-size: 12px; color: #86868b; line-height: 1.6;">
+                ⚡ <strong>Instants:</strong> ≤1%<br>
+                🔥 <strong>Juice:</strong> ≤10%<br>
+                ⭐ <strong>Excellent:</strong> 10.1-20%<br>
+                <strong>Good:</strong> 20.1-40%<br>
+                <strong>Neutral:</strong> 40.1-60%<br>
+                <strong>Poor:</strong> 60.1-80%<br>
+                <strong>Bad:</strong> 80.1-100%
+            </div>
+        </div>
+    </div>
+
+    <!-- Test Details Modal -->
+    <div class="modal-overlay" id="testModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Test Details</h3>
+                <button class="modal-close" onclick="closeTestModal()">✕</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Content will be populated by JavaScript -->
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn" onclick="closeTestModal()">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
