@@ -104,6 +104,24 @@ ipcMain.handle('read-csv-file', async (event, filePath) => {
     if (!fs.existsSync(filePath)) {
       return { success: false, error: 'File not found' };
     }
+
+    // Check file size (limit to 50MB)
+    const stats = fs.statSync(filePath);
+    const fileSizeMB = stats.size / (1024 * 1024);
+    const maxSizeMB = 50;
+
+    if (fileSizeMB > maxSizeMB) {
+      return {
+        success: false,
+        error: `File too large (${fileSizeMB.toFixed(1)}MB). Maximum size is ${maxSizeMB}MB.`
+      };
+    }
+
+    // Check if file is empty
+    if (stats.size === 0) {
+      return { success: false, error: 'File is empty' };
+    }
+
     const data = fs.readFileSync(filePath, 'utf-8');
     return { success: true, data };
   } catch (error) {
@@ -139,12 +157,13 @@ ipcMain.handle('load-data', async () => {
   try {
     const userDataPath = app.getPath('userData');
     const dataPath = path.join(userDataPath, 'queuetrack-data.json');
-    
+
     if (fs.existsSync(dataPath)) {
       const data = fs.readFileSync(dataPath, 'utf-8');
       return { success: true, data: JSON.parse(data) };
     }
-    return { success: true, data: [] };
+    // Return empty data with schema version
+    return { success: true, data: { version: 1, tests: [] } };
   } catch (error) {
     return { success: false, error: error.message };
   }
