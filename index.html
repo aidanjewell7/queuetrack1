@@ -49,6 +49,18 @@
                 </div>
             </div>
 
+            <!-- Update Bar -->
+            <div class="update-bar" id="updateBar" style="display: none;">
+                <div class="update-bar-content">
+                    <span class="update-bar-icon" id="updateIcon"></span>
+                    <span class="update-bar-text" id="updateText"></span>
+                    <div class="update-bar-progress" id="updateProgress" style="display: none;">
+                        <div class="update-bar-progress-fill" id="updateProgressFill"></div>
+                    </div>
+                </div>
+                <div class="update-bar-actions" id="updateActions"></div>
+            </div>
+
             <!-- Main Content -->
             <div class="main-content" id="mainContent">
                 <div class="stats-dashboard">
@@ -245,6 +257,14 @@
                 <strong>Ctrl/Cmd + ,</strong> &mdash; Settings<br>
                 <strong>Escape</strong> &mdash; Close panels
             </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-section-title">About</div>
+            <div style="font-size: 13px; color: #86868b; margin-bottom: 12px;">
+                QueueTrack <span id="appVersion">v1.0.0</span>
+            </div>
+            <button class="action-btn" id="checkUpdatesBtn" onclick="checkForUpdatesManual()">Check for Updates</button>
         </div>
     </div>
 
