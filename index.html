@@ -90,8 +90,8 @@
                     <table>
                         <thead>
                             <tr>
-                                <th style="min-width: 250px;">Email</th>
-                                <th>Change %</th>
+                                <th class="sortable-header" data-sort="email" style="min-width: 250px;">Email <span class="sort-indicator"></span></th>
+                                <th class="sortable-header active" data-sort="change">Change % <span class="sort-indicator">&#x25BC;</span></th>
                                 <th>Most Recent</th>
                                 <th>-2</th>
                                 <th>-3</th>
@@ -260,6 +260,14 @@
                 <strong>Ctrl/Cmd + ,</strong> &mdash; Settings<br>
                 <strong>Escape</strong> &mdash; Close panels
             </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-section-title">Data Management</div>
+            <div style="font-size: 12px; color: #86868b; margin-bottom: 12px;">
+                <span id="dataStats">0 accounts, 0 tests</span>
+            </div>
+            <button class="action-btn danger-btn" id="clearDataBtn" onclick="clearAllData()">Clear All Data</button>
         </div>
 
         <div class="settings-section">

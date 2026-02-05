@@ -19,6 +19,7 @@ const ROW_SIZES = {
 let allTests = [];
 let settings = { juicePercent: 10, juiceAnchor: 50000, darkMode: false, rowSize: 'normal', groups: {} };
 let currentFilter = 'all';
+let currentSort = { field: 'change', direction: 'desc' };
 let undoHistory = [];
 let redoHistory = [];
 let visibleRowCount = INITIAL_ROW_LIMIT;
@@ -282,6 +283,21 @@ async function saveData() {
         tests: allTests
     };
     await api.saveData(dataToSave);
+}
+
+async function clearAllData() {
+    if (!confirm('Are you sure you want to delete ALL data? This cannot be undone.')) {
+        return;
+    }
+    if (!confirm('This will permanently delete all imported tests. Are you absolutely sure?')) {
+        return;
+    }
+
+    saveToHistory();
+    allTests = [];
+    await saveData();
+    renderTable();
+    showToast('All data has been cleared', 'success');
 }
 
 // Undo/Redo Functions
@@ -591,6 +607,31 @@ function recalculateAll() {
     }
 }
 
+// Sorting
+function updateSortIndicators() {
+    document.querySelectorAll('.sortable-header').forEach(header => {
+        const indicator = header.querySelector('.sort-indicator');
+        if (header.dataset.sort === currentSort.field) {
+            header.classList.add('active');
+            indicator.textContent = currentSort.direction === 'asc' ? '\u25B2' : '\u25BC';
+        } else {
+            header.classList.remove('active');
+            indicator.textContent = '';
+        }
+    });
+}
+
+function toggleSort(field) {
+    if (currentSort.field === field) {
+        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort.field = field;
+        currentSort.direction = 'desc';
+    }
+    visibleRowCount = INITIAL_ROW_LIMIT;
+    renderTable();
+}
+
 // Table Rendering
 function renderTable() {
     const data = getTableData();
@@ -624,7 +665,23 @@ function renderTable() {
         return;
     }
 
-    data.sort((a, b) => (getOverallChange(b.email) || 0) - (getOverallChange(a.email) || 0));
+    // Sort data based on currentSort
+    if (currentSort.field === 'email') {
+        data.sort((a, b) => {
+            const cmp = a.email.localeCompare(b.email);
+            return currentSort.direction === 'asc' ? cmp : -cmp;
+        });
+    } else {
+        // Default: sort by change %
+        data.sort((a, b) => {
+            const aChange = getOverallChange(a.email) || 0;
+            const bChange = getOverallChange(b.email) || 0;
+            return currentSort.direction === 'asc' ? aChange - bChange : bChange - aChange;
+        });
+    }
+
+    // Update sort indicator in headers
+    updateSortIndicators();
 
     const visibleData = data.slice(0, visibleRowCount);
     const hasMore = data.length > visibleRowCount;
@@ -686,6 +743,18 @@ function renderTable() {
         btn.textContent = 'Timeline';
         btn.dataset.email = account.email;
         emailDiv.appendChild(btn);
+
+        // Add to Group button
+        const groupAddBtn = document.createElement('button');
+        groupAddBtn.className = 'view-all-btn group-add-quick';
+        groupAddBtn.textContent = groupName ? '\u270E' : '+';
+        groupAddBtn.title = groupName ? 'Change group' : 'Add to group';
+        groupAddBtn.dataset.email = account.email;
+        groupAddBtn.onclick = (e) => {
+            e.stopPropagation();
+            showQuickGroupPicker(account.email);
+        };
+        emailDiv.appendChild(groupAddBtn);
 
         emailCell.appendChild(emailDiv);
 
@@ -970,6 +1039,81 @@ function removeFromGroup(groupName, email) {
     }
 }
 
+function showQuickGroupPicker(email) {
+    const currentGroup = getAccountGroup(email);
+
+    // Create a quick picker dropdown
+    const existingPicker = document.getElementById('quickGroupPicker');
+    if (existingPicker) existingPicker.remove();
+
+    const picker = document.createElement('div');
+    picker.id = 'quickGroupPicker';
+    picker.className = 'quick-group-picker';
+
+    const title = document.createElement('div');
+    title.className = 'quick-group-title';
+    title.textContent = currentGroup ? `In group: ${currentGroup}` : 'Add to group';
+    picker.appendChild(title);
+
+    // Create group buttons
+    const groups = Object.keys(settings.groups || {});
+    if (groups.length === 0) {
+        const noGroups = document.createElement('div');
+        noGroups.className = 'quick-group-empty';
+        noGroups.textContent = 'No groups yet. Create one in Groups manager.';
+        picker.appendChild(noGroups);
+    } else {
+        groups.forEach(groupName => {
+            const groupBtn = document.createElement('button');
+            groupBtn.className = 'quick-group-option' + (currentGroup === groupName ? ' active' : '');
+            groupBtn.textContent = groupName;
+            groupBtn.onclick = () => {
+                addToGroup(groupName, email);
+                picker.remove();
+            };
+            picker.appendChild(groupBtn);
+        });
+    }
+
+    // Remove from group button
+    if (currentGroup) {
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'quick-group-option remove';
+        removeBtn.textContent = 'Remove from group';
+        removeBtn.onclick = () => {
+            removeFromGroup(currentGroup, email);
+            picker.remove();
+        };
+        picker.appendChild(removeBtn);
+    }
+
+    // Close button
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'quick-group-close';
+    closeBtn.textContent = '\u2715';
+    closeBtn.onclick = () => picker.remove();
+    picker.appendChild(closeBtn);
+
+    document.body.appendChild(picker);
+
+    // Position near the clicked button
+    const targetBtn = document.querySelector(`.group-add-quick[data-email="${email}"]`);
+    if (targetBtn) {
+        const rect = targetBtn.getBoundingClientRect();
+        picker.style.top = rect.bottom + 5 + 'px';
+        picker.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
+    }
+
+    // Close when clicking outside
+    const closeHandler = (e) => {
+        if (!picker.contains(e.target) && e.target !== targetBtn) {
+            picker.remove();
+            document.removeEventListener('click', closeHandler);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler), 10);
+}
+
 function renderGroupFilterChips() {
     // Remove existing group chips
     document.querySelectorAll('.filter-chip.group-chip').forEach(c => c.remove());
@@ -1042,7 +1186,23 @@ function runComparison() {
         showToast('Select at least 2 accounts to compare', 'error');
         return;
     }
-    showComparisonView(Array.from(selectedForCompare));
+
+    // Show loading feedback
+    const runBtn = document.getElementById('runCompareBtn');
+    if (runBtn) {
+        runBtn.disabled = true;
+        runBtn.textContent = 'Loading...';
+    }
+    showToast('Generating comparison...', 'success');
+
+    // Use setTimeout to allow UI to update before heavy computation
+    setTimeout(() => {
+        showComparisonView(Array.from(selectedForCompare));
+        if (runBtn) {
+            runBtn.disabled = false;
+            runBtn.textContent = `Compare (${selectedForCompare.size})`;
+        }
+    }, 50);
 }
 
 function showComparisonView(emails) {
@@ -1376,6 +1536,17 @@ function formatDate(d) {
     return (date.getMonth() + 1).toString().padStart(2, '0') + '/' + date.getDate().toString().padStart(2, '0');
 }
 
+function formatDateLong(d) {
+    const date = new Date(d);
+    const months = ['January', 'February', 'March', 'April', 'May', 'June',
+                    'July', 'August', 'September', 'October', 'November', 'December'];
+    const day = date.getDate();
+    const suffix = (day === 1 || day === 21 || day === 31) ? 'st' :
+                   (day === 2 || day === 22) ? 'nd' :
+                   (day === 3 || day === 23) ? 'rd' : 'th';
+    return `${months[date.getMonth()]} ${day}${suffix}, ${date.getFullYear()}`;
+}
+
 function getColorClass(p) {
     if (p <= 1) return 'instants';
     if (p <= 10) return 'juice';
@@ -1399,6 +1570,13 @@ function getOverallChange(email) {
 function updateStats(tests) {
     const emails = new Set(tests.map(t => t.email));
     document.getElementById('totalAccounts').textContent = emails.size;
+
+    // Update data stats in settings
+    const dataStats = document.getElementById('dataStats');
+    if (dataStats) {
+        dataStats.textContent = `${emails.size} account${emails.size !== 1 ? 's' : ''}, ${tests.length} test${tests.length !== 1 ? 's' : ''}`;
+    }
+
     if (tests.length > 0) {
         const bestPercent = Math.min(...tests.map(t => t.queuePercent));
         document.getElementById('bestPosition').textContent = bestPercent.toFixed(1) + '%';
@@ -1415,36 +1593,58 @@ function updateStats(tests) {
 function scrollToBestPosition() {
     if (!window.bestEmail) return;
 
-    const rows = document.querySelectorAll('#tableBody tr');
-    let targetRow = null;
+    // First, find the index of best email in the current sorted data
+    const data = getTableData();
+    data.sort((a, b) => (getOverallChange(b.email) || 0) - (getOverallChange(a.email) || 0));
 
-    rows.forEach(row => {
-        const emailCell = row.querySelector('.email-cell');
-        if (emailCell) {
-            // Match against the email span text, not the full cell (which includes badge text)
-            const emailSpan = emailCell.querySelector('span');
-            if (emailSpan && emailSpan.textContent.trim() === window.bestEmail) {
-                targetRow = row;
+    const bestIndex = data.findIndex(account => account.email === window.bestEmail);
+
+    if (bestIndex === -1) {
+        showToast('Best position account not found in current filter', 'error');
+        return;
+    }
+
+    // If the best email is beyond visible rows, expand and re-render
+    if (bestIndex >= visibleRowCount) {
+        visibleRowCount = bestIndex + 10; // Show a few more rows past the target
+        renderTable();
+    }
+
+    // Now find and scroll to the row
+    setTimeout(() => {
+        const rows = document.querySelectorAll('#tableBody tr');
+        let targetRow = null;
+
+        rows.forEach(row => {
+            const emailCell = row.querySelector('.email-cell');
+            if (emailCell) {
+                // Match against the email span text, not the full cell (which includes badge text)
+                const emailSpan = emailCell.querySelector('span:not(.badge)');
+                if (emailSpan && emailSpan.textContent.trim() === window.bestEmail) {
+                    targetRow = row;
+                }
             }
-        }
-    });
-
-    if (targetRow) {
-        const tableContainer = document.querySelector('.table-container');
-        const rowTop = targetRow.offsetTop;
-        const containerHeight = tableContainer.clientHeight;
-        const rowHeight = targetRow.clientHeight;
-
-        tableContainer.scrollTo({
-            top: rowTop - (containerHeight / 2) + (rowHeight / 2),
-            behavior: 'smooth'
         });
 
-        targetRow.classList.add('highlight');
-        setTimeout(() => {
-            targetRow.classList.remove('highlight');
-        }, 2000);
-    }
+        if (targetRow) {
+            const tableContainer = document.querySelector('.table-container');
+            const rowTop = targetRow.offsetTop;
+            const containerHeight = tableContainer.clientHeight;
+            const rowHeight = targetRow.clientHeight;
+
+            tableContainer.scrollTo({
+                top: rowTop - (containerHeight / 2) + (rowHeight / 2),
+                behavior: 'smooth'
+            });
+
+            targetRow.classList.add('highlight');
+            setTimeout(() => {
+                targetRow.classList.remove('highlight');
+            }, 2000);
+        } else {
+            showToast('Could not locate best position row', 'error');
+        }
+    }, 100);
 }
 
 function showTestDetails(test, email) {
@@ -1462,7 +1662,7 @@ function showTestDetails(test, email) {
         { label: 'Email', value: email },
         { label: 'Event', value: test.eventName },
         { label: 'Test #', value: String(test.testingNum) },
-        { label: 'Date', value: test.testingDate },
+        { label: 'Date', value: formatDateLong(test.testingDate) },
         { label: 'Queue', value: formatNum(test.queueNumber) + '/' + formatNum(test.queueAnchor) },
         { label: 'Queue %', value: test.queuePercent.toFixed(2) + '%' },
         { label: 'Change', value: change !== null ? (change >= 0 ? '+' : '') + change + '%' : 'N/A' },
@@ -1488,20 +1688,6 @@ function showTestDetails(test, email) {
 
     const modal = document.getElementById('testModal');
     modal.classList.add('visible');
-
-    const escHandler = (e) => {
-        if (e.key === 'Escape') {
-            closeTestModal();
-            document.removeEventListener('keydown', escHandler);
-        }
-    };
-    document.addEventListener('keydown', escHandler);
-
-    modal.onclick = (e) => {
-        if (e.target === modal) {
-            closeTestModal();
-        }
-    };
 }
 
 function closeTestModal() {
@@ -1580,6 +1766,26 @@ function setupEventListeners() {
     // Help button
     const helpBtn = document.getElementById('helpBtn');
     if (helpBtn) helpBtn.onclick = showHelp;
+
+    // Modal overlay click handlers (close when clicking outside content)
+    document.getElementById('testModal').onclick = (e) => {
+        if (e.target.id === 'testModal') closeTestModal();
+    };
+    document.getElementById('groupModal').onclick = (e) => {
+        if (e.target.id === 'groupModal') closeGroupModal();
+    };
+    document.getElementById('helpModal').onclick = (e) => {
+        if (e.target.id === 'helpModal') closeHelpModal();
+    };
+
+    // Modal close button handlers (ensure they work)
+    document.querySelectorAll('.modal-close').forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const modal = btn.closest('.modal-overlay');
+            if (modal) modal.classList.remove('visible');
+        };
+    });
 
     // Compare buttons
     const compareBtn = document.getElementById('compareBtn');
@@ -1716,4 +1922,12 @@ function setupEventListeners() {
 
     // Render group filter chips on startup
     renderGroupFilterChips();
+
+    // Sortable column headers
+    document.querySelectorAll('.sortable-header').forEach(header => {
+        header.onclick = () => {
+            const field = header.dataset.sort;
+            if (field) toggleSort(field);
+        };
+    });
 }
