@@ -80,6 +80,15 @@ function setupAutoUpdater() {
                 progress.style.display = 'none';
                 actions.innerHTML = '';
 
+                // If this was a manual check, reset button and close settings so bar is visible
+                if (isManualUpdateCheck) {
+                    isManualUpdateCheck = false;
+                    const checkBtn = document.getElementById('checkUpdatesBtn');
+                    if (checkBtn) { checkBtn.disabled = false; checkBtn.textContent = 'Check for Updates'; }
+                    document.getElementById('settingsPanel').classList.remove('open');
+                    showToast(`Update v${data.version} found! Click Download in the bar above.`, 'success');
+                }
+
                 const downloadBtn = document.createElement('button');
                 downloadBtn.className = 'update-btn download';
                 downloadBtn.textContent = 'Download';
