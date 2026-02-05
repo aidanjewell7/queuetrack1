@@ -42,6 +42,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         renderTable();
         updateUndoRedoButtons();
         applyRowSize();
+        setupAutoUpdater();
     } catch (error) {
         showToast('Failed to initialize app: ' + error.message, 'error');
         console.error('Init error:', error);
@@ -51,6 +52,117 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, 500);
     }
 });
+
+// ============================
+// AUTO-UPDATER UI
+// ============================
+function setupAutoUpdater() {
+    api.onUpdateStatus((data) => {
+        const bar = document.getElementById('updateBar');
+        const icon = document.getElementById('updateIcon');
+        const text = document.getElementById('updateText');
+        const actions = document.getElementById('updateActions');
+        const progress = document.getElementById('updateProgress');
+        const progressFill = document.getElementById('updateProgressFill');
+
+        switch (data.status) {
+            case 'checking':
+                // Don't show anything while checking - too noisy
+                break;
+
+            case 'available':
+                bar.style.display = 'flex';
+                bar.className = 'update-bar update-available';
+                icon.textContent = '\u2B06';
+                text.textContent = `Update v${data.version} is available`;
+                progress.style.display = 'none';
+                actions.innerHTML = '';
+
+                const downloadBtn = document.createElement('button');
+                downloadBtn.className = 'update-btn download';
+                downloadBtn.textContent = 'Download';
+                downloadBtn.onclick = () => {
+                    api.downloadUpdate();
+                    downloadBtn.disabled = true;
+                    downloadBtn.textContent = 'Starting...';
+                };
+                actions.appendChild(downloadBtn);
+
+                const dismissBtn = document.createElement('button');
+                dismissBtn.className = 'update-btn dismiss';
+                dismissBtn.textContent = 'Later';
+                dismissBtn.onclick = () => { bar.style.display = 'none'; };
+                actions.appendChild(dismissBtn);
+                break;
+
+            case 'downloading':
+                bar.style.display = 'flex';
+                bar.className = 'update-bar update-downloading';
+                icon.textContent = '\u2B07';
+                text.textContent = `Downloading update... ${data.percent}%`;
+                progress.style.display = 'block';
+                progressFill.style.width = data.percent + '%';
+                actions.innerHTML = '';
+                break;
+
+            case 'ready':
+                bar.style.display = 'flex';
+                bar.className = 'update-bar update-ready';
+                icon.textContent = '\u2705';
+                text.textContent = `Update v${data.version} ready to install`;
+                progress.style.display = 'none';
+                actions.innerHTML = '';
+
+                const installBtn = document.createElement('button');
+                installBtn.className = 'update-btn install';
+                installBtn.textContent = 'Restart & Update';
+                installBtn.onclick = () => { api.installUpdate(); };
+                actions.appendChild(installBtn);
+
+                const laterBtn = document.createElement('button');
+                laterBtn.className = 'update-btn dismiss';
+                laterBtn.textContent = 'On Next Launch';
+                laterBtn.onclick = () => { bar.style.display = 'none'; };
+                actions.appendChild(laterBtn);
+                break;
+
+            case 'up-to-date':
+                // Silently hide - no need to show "up to date" on every check
+                bar.style.display = 'none';
+                break;
+
+            case 'error':
+                // Only show errors briefly, don't leave them up
+                console.log('Update check error:', data.message);
+                bar.style.display = 'none';
+                break;
+        }
+    });
+
+    // Show current version in settings
+    api.getAppVersion().then(version => {
+        const versionEl = document.getElementById('appVersion');
+        if (versionEl) versionEl.textContent = 'v' + version;
+    });
+}
+
+async function checkForUpdatesManual() {
+    const btn = document.getElementById('checkUpdatesBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Checking...';
+    }
+    const result = await api.checkForUpdates();
+    if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Check for Updates';
+    }
+    if (result.success && !result.version) {
+        showToast('You are running the latest version', 'success');
+    } else if (!result.success) {
+        showToast('Could not check for updates', 'error');
+    }
+}
 
 // Toast Notifications
 function showToast(message, type = 'success') {

@@ -6,11 +6,20 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win --x64",
-    "build-portable": "electron-builder --win portable"
+    "build-portable": "electron-builder --win portable",
+    "publish": "electron-builder --win --x64 --publish always"
   },
   "build": {
     "appId": "com.queuetrack.app",
     "productName": "QueueTrack",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "aidanjewell7",
+        "repo": "queuetrack1",
+        "releaseType": "release"
+      }
+    ],
     "win": {
       "target": [
         {
@@ -52,6 +61,7 @@
     "electron-builder": "^24.9.1"
   },
   "dependencies": {
+    "electron-updater": "^6.1.7",
     "papaparse": "^5.5.3"
   }
 }

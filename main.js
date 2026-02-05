@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 
@@ -7,9 +8,100 @@ let mainWindow;
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
-  dialog.showErrorBox('Application Error', 
+  dialog.showErrorBox('Application Error',
     'An unexpected error occurred. The application will continue running.\n\n' +
     'Error: ' + error.message);
+});
+
+// ============================
+// AUTO-UPDATER
+// ============================
+function setupAutoUpdater() {
+  // Configure updater
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    sendUpdateStatus('checking');
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    sendUpdateStatus('available', {
+      version: info.version,
+      releaseDate: info.releaseDate,
+      releaseNotes: info.releaseNotes
+    });
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    sendUpdateStatus('up-to-date');
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    sendUpdateStatus('downloading', {
+      percent: Math.round(progress.percent),
+      transferred: progress.transferred,
+      total: progress.total,
+      bytesPerSecond: progress.bytesPerSecond
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdateStatus('ready', {
+      version: info.version
+    });
+  });
+
+  autoUpdater.on('error', (error) => {
+    sendUpdateStatus('error', {
+      message: error.message
+    });
+  });
+
+  // Check for updates after a short delay so the window is ready
+  setTimeout(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.log('Auto-update check failed (this is normal in dev):', err.message);
+    });
+  }, 3000);
+
+  // Check for updates every 30 minutes
+  setInterval(() => {
+    autoUpdater.checkForUpdates().catch(() => {});
+  }, 30 * 60 * 1000);
+}
+
+function sendUpdateStatus(status, data = {}) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', { status, ...data });
+  }
+}
+
+// IPC handlers for update actions
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { success: true, version: result?.updateInfo?.version };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('download-update', async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('install-update', () => {
+  autoUpdater.quitAndInstall(false, true);
+});
+
+ipcMain.handle('get-app-version', () => {
+  return app.getVersion();
 });
 
 function createWindow() {
@@ -45,7 +137,7 @@ function createWindow() {
       message: 'QueueTrack has crashed. Would you like to restart?',
       buttons: ['Restart', 'Close']
     };
-    
+
     dialog.showMessageBox(options).then((result) => {
       if (result.response === 0) {
         app.relaunch();
@@ -62,6 +154,9 @@ function createWindow() {
   if (process.env.NODE_ENV !== 'development') {
     mainWindow.setMenu(null);
   }
+
+  // Start auto-updater after window is created
+  setupAutoUpdater();
 }
 
 app.whenReady().then(createWindow);

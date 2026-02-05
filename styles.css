@@ -1943,6 +1943,171 @@ body.dark .help-code {
     color: #f5f5f7;
 }
 
+/* ============================
+   Auto-Update Bar
+   ============================ */
+.update-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 24px;
+    flex-shrink: 0;
+    gap: 12px;
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.update-bar.update-available {
+    background: rgba(0, 122, 255, 0.1);
+    border-bottom: 1px solid rgba(0, 122, 255, 0.2);
+}
+
+body.dark .update-bar.update-available {
+    background: rgba(10, 132, 255, 0.12);
+    border-bottom-color: rgba(10, 132, 255, 0.25);
+}
+
+.update-bar.update-downloading {
+    background: rgba(251, 191, 36, 0.1);
+    border-bottom: 1px solid rgba(251, 191, 36, 0.2);
+}
+
+body.dark .update-bar.update-downloading {
+    background: rgba(251, 191, 36, 0.08);
+    border-bottom-color: rgba(251, 191, 36, 0.15);
+}
+
+.update-bar.update-ready {
+    background: rgba(16, 185, 129, 0.1);
+    border-bottom: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+body.dark .update-bar.update-ready {
+    background: rgba(16, 185, 129, 0.08);
+    border-bottom-color: rgba(16, 185, 129, 0.15);
+}
+
+.update-bar-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.update-bar-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.update-bar-text {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1d1d1f;
+    white-space: nowrap;
+}
+
+body.dark .update-bar-text {
+    color: #f5f5f7;
+}
+
+.update-bar-progress {
+    flex: 1;
+    max-width: 200px;
+    height: 6px;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+body.dark .update-bar-progress {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.update-bar-progress-fill {
+    height: 100%;
+    background: #007AFF;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+body.dark .update-bar-progress-fill {
+    background: #0A84FF;
+}
+
+.update-bar-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.update-btn {
+    padding: 5px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s ease;
+}
+
+.update-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.update-btn.download {
+    background: #007AFF;
+    color: white;
+}
+
+.update-btn.download:hover:not(:disabled) {
+    background: #0051D5;
+}
+
+body.dark .update-btn.download {
+    background: #0A84FF;
+}
+
+.update-btn.install {
+    background: #10B981;
+    color: white;
+}
+
+.update-btn.install:hover {
+    background: #059669;
+}
+
+.update-btn.dismiss {
+    background: rgba(0, 0, 0, 0.05);
+    color: #86868b;
+}
+
+.update-btn.dismiss:hover {
+    background: rgba(0, 0, 0, 0.1);
+    color: #1d1d1f;
+}
+
+body.dark .update-btn.dismiss {
+    background: rgba(255, 255, 255, 0.05);
+    color: #86868b;
+}
+
+body.dark .update-btn.dismiss:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #f5f5f7;
+}
+
 /* Select input styling */
 select.setting-input {
     appearance: none;
