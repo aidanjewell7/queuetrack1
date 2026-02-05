@@ -1,9 +1,19 @@
 const { ipcRenderer } = require('electron');
+const Papa = require('papaparse');
+
+// Constants
+const CURRENT_SCHEMA_VERSION = 1;
+const MAX_HISTORY_SIZE = 20; // Keep last 20 states
+const INITIAL_ROW_LIMIT = 100; // Show first 100 rows initially
+const ROW_INCREMENT = 50; // Load 50 more rows when "Show More" clicked
 
 // State
 let allTests = [];
 let settings = { juicePercent: 10, juiceAnchor: 50000, darkMode: false };
 let currentFilter = 'all';
+let undoHistory = []; // Stack of previous states
+let redoHistory = []; // Stack for redo operations
+let visibleRowCount = INITIAL_ROW_LIMIT; // Track how many rows to show
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
@@ -12,6 +22,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadData();
         setupEventListeners();
         renderTable();
+        updateUndoRedoButtons(); // Initialize button states
     } catch (error) {
         showToast('Failed to initialize app: ' + error.message, 'error');
         console.error('Init error:', error);
@@ -58,17 +69,125 @@ async function saveSettings() {
     await ipcRenderer.invoke('save-settings', settings);
 }
 
+// Data Migration Functions
+function migrateData(data) {
+    // Handle legacy data (no schema version)
+    if (!data.version) {
+        console.log('Migrating legacy data to schema v1');
+        return {
+            version: 1,
+            tests: Array.isArray(data) ? data : []
+        };
+    }
+
+    // Future migrations can be added here
+    // if (data.version === 1) {
+    //     console.log('Migrating from v1 to v2');
+    //     return { version: 2, tests: data.tests, ... };
+    // }
+
+    return data;
+}
+
 // Data Management
 async function loadData() {
     const result = await ipcRenderer.invoke('load-data');
     if (result.success && result.data) {
-        allTests = result.data;
+        // Migrate data if needed
+        const migratedData = migrateData(result.data);
+
+        // Check if migration happened
+        if (migratedData.version !== result.data.version) {
+            console.log(`Data migrated from v${result.data.version || 0} to v${migratedData.version}`);
+            // Save migrated data
+            await saveData();
+        }
+
+        allTests = migratedData.tests;
         recalculateAll();
     }
 }
 
 async function saveData() {
-    await ipcRenderer.invoke('save-data', allTests);
+    const dataToSave = {
+        version: CURRENT_SCHEMA_VERSION,
+        tests: allTests
+    };
+    await ipcRenderer.invoke('save-data', dataToSave);
+}
+
+// Undo/Redo Functions
+function saveToHistory() {
+    // Deep clone current state
+    undoHistory.push(JSON.parse(JSON.stringify(allTests)));
+
+    // Limit history size
+    if (undoHistory.length > MAX_HISTORY_SIZE) {
+        undoHistory.shift(); // Remove oldest
+    }
+
+    // Clear redo history when new action is performed
+    redoHistory = [];
+
+    // Update undo button state
+    updateUndoRedoButtons();
+}
+
+function undo() {
+    if (undoHistory.length === 0) {
+        showToast('Nothing to undo', 'info');
+        return;
+    }
+
+    // Save current state to redo history
+    redoHistory.push(JSON.parse(JSON.stringify(allTests)));
+
+    // Restore previous state
+    allTests = undoHistory.pop();
+    recalculateAll();
+    saveData();
+    renderTable();
+
+    showToast('Undo successful', 'success');
+    updateUndoRedoButtons();
+}
+
+function redo() {
+    if (redoHistory.length === 0) {
+        showToast('Nothing to redo', 'info');
+        return;
+    }
+
+    // Save current state to undo history
+    undoHistory.push(JSON.parse(JSON.stringify(allTests)));
+
+    // Restore redo state
+    allTests = redoHistory.pop();
+    recalculateAll();
+    saveData();
+    renderTable();
+
+    showToast('Redo successful', 'success');
+    updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+    const undoBtn = document.getElementById('undoBtn');
+    const redoBtn = document.getElementById('redoBtn');
+
+    if (undoBtn) {
+        undoBtn.disabled = undoHistory.length === 0;
+        undoBtn.title = undoHistory.length > 0
+            ? `Undo (${undoHistory.length} available)`
+            : 'Nothing to undo';
+    }
+
+    if (redoBtn) {
+        redoBtn.disabled = redoHistory.length === 0;
+        redoBtn.title = redoHistory.length > 0
+            ? `Redo (${redoHistory.length} available)`
+            : 'Nothing to redo';
+    }
 }
 
 // CSV Import
@@ -92,6 +211,9 @@ async function importCSV() {
             return;
         }
 
+        // Save current state to undo history BEFORE making changes
+        saveToHistory();
+
         const warnings = processNewTests(tests);
         recalculateAll();
         await saveData();
@@ -112,29 +234,133 @@ async function importCSV() {
     }
 }
 
+// Validation helpers
+function isValidEmail(email) {
+    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return regex.test(email);
+}
+
+function isValidDate(dateString) {
+    // Check format YYYY-MM-DD
+    const regex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!regex.test(dateString)) return false;
+
+    // Check if date is actually valid
+    const date = new Date(dateString);
+    return date instanceof Date && !isNaN(date);
+}
+
+function validateTestData(test, rowIndex) {
+    const errors = [];
+
+    // Validate email
+    if (!isValidEmail(test.email)) {
+        errors.push(`Row ${rowIndex}: Invalid email format "${test.email}"`);
+    }
+
+    // Validate date
+    if (!isValidDate(test.testingDate)) {
+        errors.push(`Row ${rowIndex}: Invalid date "${test.testingDate}" (must be YYYY-MM-DD)`);
+    }
+
+    // Validate event name length
+    if (test.eventName.length === 0) {
+        errors.push(`Row ${rowIndex}: Event name cannot be empty`);
+    }
+    if (test.eventName.length > 200) {
+        errors.push(`Row ${rowIndex}: Event name too long (max 200 characters)`);
+    }
+
+    // Validate queue number
+    if (isNaN(test.queueNumber) || test.queueNumber < 0) {
+        errors.push(`Row ${rowIndex}: Invalid queue number "${test.queueNumber}"`);
+    }
+    if (test.queueNumber > 10000000) {
+        errors.push(`Row ${rowIndex}: Queue number too large (max 10,000,000)`);
+    }
+
+    // Validate queue anchor
+    if (test.queueAnchor !== null) {
+        if (isNaN(test.queueAnchor) || test.queueAnchor < 0) {
+            errors.push(`Row ${rowIndex}: Invalid queue anchor "${test.queueAnchor}"`);
+        }
+        if (test.queueAnchor > 10000000) {
+            errors.push(`Row ${rowIndex}: Queue anchor too large (max 10,000,000)`);
+        }
+        if (test.queueAnchor < test.queueNumber) {
+            errors.push(`Row ${rowIndex}: Queue anchor (${test.queueAnchor}) cannot be less than queue number (${test.queueNumber})`);
+        }
+    }
+
+    return errors;
+}
+
 function parseCSV(csvText) {
-    const lines = csvText.trim().split('\n');
-    const headers = lines[0].split(',').map(h => h.trim());
-    
+    // Use PapaParse for robust CSV parsing
+    const parsed = Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        trimHeaders: true,
+        transformHeader: (h) => h.trim()
+    });
+
+    if (parsed.errors.length > 0) {
+        console.warn('CSV parsing warnings:', parsed.errors);
+    }
+
+    const headers = parsed.meta.fields || [];
     const required = ['Email', 'Testing Date', 'Event Name', 'Queue Number'];
+
     for (const req of required) {
-        if (!headers.includes(req)) throw new Error(`Missing column: ${req}`);
+        if (!headers.includes(req)) {
+            throw new Error(`Missing required column: ${req}`);
+        }
     }
 
     const tests = [];
-    for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim());
-        if (values.length < 4) continue;
+    const validationErrors = [];
+    let rowIndex = 2; // Start at 2 (1 is header)
 
-        tests.push({
-            email: values[headers.indexOf('Email')],
-            testingDate: values[headers.indexOf('Testing Date')],
-            eventName: values[headers.indexOf('Event Name')],
-            queueNumber: parseInt(values[headers.indexOf('Queue Number')]),
-            queueAnchor: headers.includes('Queue Anchor') && values[headers.indexOf('Queue Anchor')] 
-                ? parseInt(values[headers.indexOf('Queue Anchor')]) : null
-        });
+    for (const row of parsed.data) {
+        // Skip rows with missing required fields
+        if (!row.Email || !row['Testing Date'] || !row['Event Name'] || !row['Queue Number']) {
+            rowIndex++;
+            continue;
+        }
+
+        const test = {
+            email: row.Email.trim(),
+            testingDate: row['Testing Date'].trim(),
+            eventName: row['Event Name'].trim(),
+            queueNumber: parseInt(row['Queue Number']),
+            queueAnchor: row['Queue Anchor'] ? parseInt(row['Queue Anchor']) : null
+        };
+
+        // Validate the test data
+        const errors = validateTestData(test, rowIndex);
+        if (errors.length > 0) {
+            validationErrors.push(...errors);
+        } else {
+            tests.push(test);
+        }
+
+        rowIndex++;
     }
+
+    // If there are validation errors, throw them
+    if (validationErrors.length > 0) {
+        const errorMsg = validationErrors.slice(0, 10).join('\n'); // Show first 10 errors
+        const remaining = validationErrors.length - 10;
+        throw new Error(
+            `Found ${validationErrors.length} validation error(s):\n\n${errorMsg}` +
+            (remaining > 0 ? `\n\n...and ${remaining} more errors` : '')
+        );
+    }
+
+    if (tests.length === 0) {
+        throw new Error('No valid data rows found in CSV');
+    }
+
     return tests;
 }
 
@@ -192,7 +418,7 @@ function renderTable() {
         } else if (allTests.length > 0) {
             message = 'No accounts match this filter.';
         }
-        
+
         tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:#86868b;">${message}</td></tr>`;
         updateStats([]);
         return;
@@ -200,7 +426,11 @@ function renderTable() {
 
     data.sort((a, b) => (getOverallChange(b.email) || 0) - (getOverallChange(a.email) || 0));
 
-    data.forEach(account => {
+    // Limit visible rows for performance
+    const visibleData = data.slice(0, visibleRowCount);
+    const hasMore = data.length > visibleRowCount;
+
+    visibleData.forEach(account => {
         const row = tbody.insertRow();
         
         // Email cell
@@ -227,7 +457,7 @@ function renderTable() {
         const btn = document.createElement('button');
         btn.className = 'view-all-btn';
         btn.textContent = 'View All';
-        btn.onclick = () => showTimeline(account.email);
+        btn.dataset.email = account.email;
         emailDiv.appendChild(btn);
         
         emailCell.appendChild(emailDiv);
@@ -248,30 +478,56 @@ function renderTable() {
         }
     });
 
+    // Add "Show More" button if needed
+    if (hasMore) {
+        const row = tbody.insertRow();
+        const cell = row.insertCell();
+        cell.colSpan = 7;
+        cell.style.textAlign = 'center';
+        cell.style.padding = '20px';
+
+        const remaining = data.length - visibleRowCount;
+        const btn = document.createElement('button');
+        btn.className = 'show-more-btn';
+        btn.textContent = `Show ${Math.min(ROW_INCREMENT, remaining)} More (${remaining} remaining)`;
+        btn.onclick = () => {
+            visibleRowCount += ROW_INCREMENT;
+            renderTable();
+        };
+        cell.appendChild(btn);
+    }
+
     updateStats(allTests);
+
+    // Log performance info
+    if (data.length > INITIAL_ROW_LIMIT) {
+        console.log(`Performance: Showing ${visibleData.length} of ${data.length} accounts`);
+    }
 }
 
 function createTestCell(test, email) {
     const div = document.createElement('div');
     div.className = 'test-cell ' + getColorClass(test.queuePercent);
     div.style.minWidth = '100px';
-    div.onclick = () => showTestDetails(test, email);
-    
+    // Store test data as data attributes for event delegation
+    div.dataset.email = email;
+    div.dataset.testData = JSON.stringify(test);
+
     const info = document.createElement('span');
     info.className = 'info-icon';
     info.textContent = 'ℹ️';
     div.appendChild(info);
-    
+
     const nums = document.createElement('div');
     nums.className = 'queue-numbers';
     nums.textContent = formatNum(test.queueNumber) + '/' + formatNum(test.queueAnchor);
     div.appendChild(nums);
-    
+
     const pct = document.createElement('div');
     pct.className = 'queue-percent';
     pct.textContent = test.queuePercent.toFixed(1) + '%';
     div.appendChild(pct);
-    
+
     return div;
 }
 
@@ -341,16 +597,36 @@ function hideTimeline() {
     document.getElementById('importBtn').style.display = 'block';
 }
 
+function downsampleData(tests, maxPoints = 100) {
+    if (tests.length <= maxPoints) return tests;
+
+    // Always include first and last points
+    const result = [tests[0]];
+    const step = (tests.length - 1) / (maxPoints - 1);
+
+    for (let i = 1; i < maxPoints - 1; i++) {
+        const idx = Math.round(i * step);
+        result.push(tests[idx]);
+    }
+
+    result.push(tests[tests.length - 1]);
+    return result;
+}
+
 function renderGraph(tests) {
     const area = document.getElementById('graphArea');
     const svg = area.querySelector('svg');
-    
+
     // Clear points
     area.querySelectorAll('.graph-point').forEach(p => p.remove());
 
+    // Downsample if too many points (performance optimization)
+    const maxPoints = 150; // Limit visible points for performance
+    const displayTests = downsampleData(tests, maxPoints);
+
     // Calculate positions
-    const xStep = 100 / (tests.length - 1 || 1);
-    const points = tests.map((t, i) => ({ x: i * xStep, y: t.queuePercent, test: t }));
+    const xStep = 100 / (displayTests.length - 1 || 1);
+    const points = displayTests.map((t, i) => ({ x: i * xStep, y: t.queuePercent, test: t }));
 
     // Update line
     const line = document.getElementById('graphLine');
@@ -366,13 +642,13 @@ function renderGraph(tests) {
         el.dataset.date = formatDate(p.test.testingDate);
         el.dataset.percent = p.test.queuePercent.toFixed(1);
         el.dataset.queue = formatNum(p.test.queueNumber) + '/' + formatNum(p.test.queueAnchor);
-        el.dataset.change = i > 0 ? (p.test.queuePercent - tests[i-1].queuePercent).toFixed(1) : '0';
+        el.dataset.change = i > 0 ? (p.test.queuePercent - displayTests[i-1].queuePercent).toFixed(1) : '0';
         el.onmouseenter = showTooltip;
         el.onmouseleave = hideTooltip;
         area.appendChild(el);
     });
 
-    // Update X-axis
+    // Update X-axis with all original data for accuracy
     const xAxis = document.getElementById('xAxis');
     xAxis.innerHTML = '';
     const step = Math.max(1, Math.floor(tests.length / 5));
@@ -385,6 +661,11 @@ function renderGraph(tests) {
             xAxis.appendChild(lbl);
         }
     });
+
+    // Show downsampling notice if applicable
+    if (tests.length > maxPoints) {
+        console.log(`Graph downsampled: showing ${displayTests.length} of ${tests.length} data points for performance`);
+    }
 }
 
 function showTooltip(e) {
@@ -577,6 +858,28 @@ function hideLoadingState() {
 
 // Event Listeners
 function setupEventListeners() {
+    // Event delegation for table clicks (prevents memory leaks)
+    const tableBody = document.getElementById('tableBody');
+    tableBody.addEventListener('click', (e) => {
+        // Handle "View All" button clicks
+        if (e.target.classList.contains('view-all-btn')) {
+            const email = e.target.dataset.email;
+            if (email) showTimeline(email);
+        }
+
+        // Handle test cell clicks
+        const testCell = e.target.closest('.test-cell');
+        if (testCell && testCell.dataset.testData) {
+            try {
+                const test = JSON.parse(testCell.dataset.testData);
+                const email = testCell.dataset.email;
+                showTestDetails(test, email);
+            } catch (err) {
+                console.error('Error parsing test data:', err);
+            }
+        }
+    });
+
     // Best Position click
     const bestCard = document.getElementById('bestPositionCard');
     if (bestCard) {
@@ -604,10 +907,13 @@ function setupEventListeners() {
     
     document.getElementById('importBtn').onclick = importCSV;
     document.getElementById('backBtn').onclick = hideTimeline;
+    document.getElementById('undoBtn').onclick = undo;
+    document.getElementById('redoBtn').onclick = redo;
     
     document.querySelectorAll('.filter-chip').forEach(chip => {
         chip.onclick = () => {
             currentFilter = chip.dataset.filter;
+            visibleRowCount = INITIAL_ROW_LIMIT; // Reset row count on filter change
             document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
             chip.classList.add('active');
             showLoadingState();
@@ -622,10 +928,10 @@ function setupEventListeners() {
     let searchTimeout;
     document.getElementById('searchInput').oninput = (e) => {
         const query = e.target.value.toLowerCase();
-        
+
         // Clear previous timeout
         clearTimeout(searchTimeout);
-        
+
         if (query) {
             currentFilter = 'search:' + query;
             // Deactivate all filter chips when searching
@@ -635,7 +941,10 @@ function setupEventListeners() {
             // Re-activate "All" chip
             document.querySelectorAll('.filter-chip')[0].classList.add('active');
         }
-        
+
+        // Reset row count on search
+        visibleRowCount = INITIAL_ROW_LIMIT;
+
         // Show loading and debounce
         showLoadingState();
         searchTimeout = setTimeout(() => {
@@ -660,6 +969,16 @@ function setupEventListeners() {
 
     // Keyboard Shortcuts
     document.addEventListener('keydown', (e) => {
+        // Ctrl/Cmd + Z = Undo
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            undo();
+        }
+        // Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y = Redo
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+            e.preventDefault();
+            redo();
+        }
         // Ctrl/Cmd + I = Import
         if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
             e.preventDefault();
