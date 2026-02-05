@@ -21,11 +21,16 @@ function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  // Enable logging for debugging update issues
+  autoUpdater.logger = require('electron').app.isPackaged ? null : console;
+
   autoUpdater.on('checking-for-update', () => {
+    console.log('Auto-updater: checking for updates...');
     sendUpdateStatus('checking');
   });
 
   autoUpdater.on('update-available', (info) => {
+    console.log('Auto-updater: update available -', info.version);
     sendUpdateStatus('available', {
       version: info.version,
       releaseDate: info.releaseDate,
@@ -33,7 +38,8 @@ function setupAutoUpdater() {
     });
   });
 
-  autoUpdater.on('update-not-available', () => {
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('Auto-updater: up to date -', info.version);
     sendUpdateStatus('up-to-date');
   });
 
@@ -47,12 +53,14 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
+    console.log('Auto-updater: update downloaded -', info.version);
     sendUpdateStatus('ready', {
       version: info.version
     });
   });
 
   autoUpdater.on('error', (error) => {
+    console.error('Auto-updater error:', error.message);
     sendUpdateStatus('error', {
       message: error.message
     });
