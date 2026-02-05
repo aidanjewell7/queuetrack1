@@ -1,19 +1,37 @@
-const { ipcRenderer } = require('electron');
-const Papa = require('papaparse');
+// Use the secure electronAPI bridge instead of direct require
+const api = window.electronAPI;
 
 // Constants
 const CURRENT_SCHEMA_VERSION = 1;
-const MAX_HISTORY_SIZE = 20; // Keep last 20 states
-const INITIAL_ROW_LIMIT = 100; // Show first 100 rows initially
-const ROW_INCREMENT = 50; // Load 50 more rows when "Show More" clicked
+const MAX_HISTORY_SIZE = 20;
+const INITIAL_ROW_LIMIT = 100;
+const ROW_INCREMENT = 50;
+
+// Row size configurations
+const ROW_SIZES = {
+    compact: { padding: '6px 16px', testPadding: '6px', fontSize: '11px', testFontSize: '10px', label: 'Compact' },
+    normal: { padding: '12px 16px', testPadding: '12px', fontSize: '12px', testFontSize: '11px', label: 'Normal' },
+    comfortable: { padding: '18px 16px', testPadding: '16px', fontSize: '13px', testFontSize: '12px', label: 'Comfortable' }
+};
 
 // State
 let allTests = [];
-let settings = { juicePercent: 10, juiceAnchor: 50000, darkMode: false };
+let settings = { juicePercent: 10, juiceAnchor: 50000, darkMode: false, rowSize: 'normal', groups: {} };
 let currentFilter = 'all';
-let undoHistory = []; // Stack of previous states
-let redoHistory = []; // Stack for redo operations
-let visibleRowCount = INITIAL_ROW_LIMIT; // Track how many rows to show
+let undoHistory = [];
+let redoHistory = [];
+let visibleRowCount = INITIAL_ROW_LIMIT;
+let compareMode = false;
+let selectedForCompare = new Set();
+
+// HTML escaping utility to prevent XSS
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    const s = String(str);
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+}
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
@@ -22,12 +40,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         await loadData();
         setupEventListeners();
         renderTable();
-        updateUndoRedoButtons(); // Initialize button states
+        updateUndoRedoButtons();
+        applyRowSize();
     } catch (error) {
         showToast('Failed to initialize app: ' + error.message, 'error');
         console.error('Init error:', error);
     } finally {
-        // Hide loading screen
         setTimeout(() => {
             document.getElementById('loadingScreen').classList.add('hidden');
         }, 500);
@@ -38,12 +56,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 function showToast(message, type = 'success') {
     const toast = document.createElement('div');
     toast.className = type === 'error' ? 'error-toast' : 'success-toast';
-    toast.innerHTML = `
-        ${message}
-        <span class="toast-close" onclick="this.parentElement.remove()">✕</span>
-    `;
+
+    const text = document.createElement('span');
+    text.textContent = message;
+    toast.appendChild(text);
+
+    const close = document.createElement('span');
+    close.className = 'toast-close';
+    close.textContent = '\u2715';
+    close.onclick = () => toast.remove();
+    toast.appendChild(close);
+
     document.body.appendChild(toast);
-    
+
     setTimeout(() => {
         toast.style.opacity = '0';
         setTimeout(() => toast.remove(), 300);
@@ -52,11 +77,16 @@ function showToast(message, type = 'success') {
 
 // Settings
 async function loadSettings() {
-    const result = await ipcRenderer.invoke('load-settings');
+    const result = await api.loadSettings();
     if (result.success && result.data) {
-        settings = result.data;
+        settings = { ...settings, ...result.data };
         document.getElementById('juicePercent').value = settings.juicePercent;
         document.getElementById('juiceAnchor').value = settings.juiceAnchor;
+
+        // Row size
+        const rowSizeSelect = document.getElementById('rowSizeSelect');
+        if (rowSizeSelect) rowSizeSelect.value = settings.rowSize || 'normal';
+
         if (settings.darkMode) {
             document.body.classList.add('dark');
             document.getElementById('darkBtn').classList.add('active');
@@ -66,12 +96,21 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
-    await ipcRenderer.invoke('save-settings', settings);
+    await api.saveSettings(settings);
+}
+
+// Row Size
+function applyRowSize() {
+    const size = ROW_SIZES[settings.rowSize] || ROW_SIZES.normal;
+    document.documentElement.style.setProperty('--row-padding', size.padding);
+    document.documentElement.style.setProperty('--test-padding', size.testPadding);
+    document.documentElement.style.setProperty('--row-font-size', size.fontSize);
+    document.documentElement.style.setProperty('--test-font-size', size.testFontSize);
+    document.body.setAttribute('data-row-size', settings.rowSize || 'normal');
 }
 
 // Data Migration Functions
 function migrateData(data) {
-    // Handle legacy data (no schema version)
     if (!data.version) {
         console.log('Migrating legacy data to schema v1');
         return {
@@ -79,27 +118,24 @@ function migrateData(data) {
             tests: Array.isArray(data) ? data : []
         };
     }
-
-    // Future migrations can be added here
-    // if (data.version === 1) {
-    //     console.log('Migrating from v1 to v2');
-    //     return { version: 2, tests: data.tests, ... };
-    // }
-
     return data;
 }
 
 // Data Management
 async function loadData() {
-    const result = await ipcRenderer.invoke('load-data');
+    const result = await api.loadData();
     if (result.success && result.data) {
-        // Migrate data if needed
+        if (result.recovered) {
+            showToast('Data file was corrupted. Restored from backup.', 'info');
+        }
+        if (result.corrupted) {
+            showToast('Data file was corrupted and no backup available. Starting fresh.', 'error');
+        }
+
         const migratedData = migrateData(result.data);
 
-        // Check if migration happened
         if (migratedData.version !== result.data.version) {
             console.log(`Data migrated from v${result.data.version || 0} to v${migratedData.version}`);
-            // Save migrated data
             await saveData();
         }
 
@@ -113,23 +149,16 @@ async function saveData() {
         version: CURRENT_SCHEMA_VERSION,
         tests: allTests
     };
-    await ipcRenderer.invoke('save-data', dataToSave);
+    await api.saveData(dataToSave);
 }
 
 // Undo/Redo Functions
 function saveToHistory() {
-    // Deep clone current state
     undoHistory.push(JSON.parse(JSON.stringify(allTests)));
-
-    // Limit history size
     if (undoHistory.length > MAX_HISTORY_SIZE) {
-        undoHistory.shift(); // Remove oldest
+        undoHistory.shift();
     }
-
-    // Clear redo history when new action is performed
     redoHistory = [];
-
-    // Update undo button state
     updateUndoRedoButtons();
 }
 
@@ -138,16 +167,11 @@ function undo() {
         showToast('Nothing to undo', 'info');
         return;
     }
-
-    // Save current state to redo history
     redoHistory.push(JSON.parse(JSON.stringify(allTests)));
-
-    // Restore previous state
     allTests = undoHistory.pop();
     recalculateAll();
     saveData();
     renderTable();
-
     showToast('Undo successful', 'success');
     updateUndoRedoButtons();
 }
@@ -157,16 +181,11 @@ function redo() {
         showToast('Nothing to redo', 'info');
         return;
     }
-
-    // Save current state to undo history
     undoHistory.push(JSON.parse(JSON.stringify(allTests)));
-
-    // Restore redo state
     allTests = redoHistory.pop();
     recalculateAll();
     saveData();
     renderTable();
-
     showToast('Redo successful', 'success');
     updateUndoRedoButtons();
 }
@@ -193,13 +212,12 @@ function updateUndoRedoButtons() {
 // CSV Import
 async function importCSV() {
     try {
-        const filePath = await ipcRenderer.invoke('select-csv-file');
+        const filePath = await api.selectCsvFile();
         if (!filePath) return;
 
-        // Show loading
-        const loadingToast = showToast('Importing CSV...', 'info');
+        showToast('Importing CSV...', 'info');
 
-        const result = await ipcRenderer.invoke('read-csv-file', filePath);
+        const result = await api.readCsvFile(filePath);
         if (!result.success) {
             showToast(`Error reading file: ${result.error}`, 'error');
             return;
@@ -211,7 +229,6 @@ async function importCSV() {
             return;
         }
 
-        // Save current state to undo history BEFORE making changes
         saveToHistory();
 
         const warnings = processNewTests(tests);
@@ -219,7 +236,7 @@ async function importCSV() {
         await saveData();
         renderTable();
 
-        let msg = `✓ Successfully imported ${tests.length} test${tests.length > 1 ? 's' : ''}!`;
+        let msg = `Successfully imported ${tests.length} test${tests.length > 1 ? 's' : ''}!`;
         showToast(msg, 'success');
 
         if (warnings.length > 0) {
@@ -241,11 +258,8 @@ function isValidEmail(email) {
 }
 
 function isValidDate(dateString) {
-    // Check format YYYY-MM-DD
     const regex = /^\d{4}-\d{2}-\d{2}$/;
     if (!regex.test(dateString)) return false;
-
-    // Check if date is actually valid
     const date = new Date(dateString);
     return date instanceof Date && !isNaN(date);
 }
@@ -253,17 +267,14 @@ function isValidDate(dateString) {
 function validateTestData(test, rowIndex) {
     const errors = [];
 
-    // Validate email
     if (!isValidEmail(test.email)) {
         errors.push(`Row ${rowIndex}: Invalid email format "${test.email}"`);
     }
 
-    // Validate date
     if (!isValidDate(test.testingDate)) {
         errors.push(`Row ${rowIndex}: Invalid date "${test.testingDate}" (must be YYYY-MM-DD)`);
     }
 
-    // Validate event name length
     if (test.eventName.length === 0) {
         errors.push(`Row ${rowIndex}: Event name cannot be empty`);
     }
@@ -271,7 +282,6 @@ function validateTestData(test, rowIndex) {
         errors.push(`Row ${rowIndex}: Event name too long (max 200 characters)`);
     }
 
-    // Validate queue number
     if (isNaN(test.queueNumber) || test.queueNumber < 0) {
         errors.push(`Row ${rowIndex}: Invalid queue number "${test.queueNumber}"`);
     }
@@ -279,7 +289,6 @@ function validateTestData(test, rowIndex) {
         errors.push(`Row ${rowIndex}: Queue number too large (max 10,000,000)`);
     }
 
-    // Validate queue anchor
     if (test.queueAnchor !== null) {
         if (isNaN(test.queueAnchor) || test.queueAnchor < 0) {
             errors.push(`Row ${rowIndex}: Invalid queue anchor "${test.queueAnchor}"`);
@@ -296,7 +305,6 @@ function validateTestData(test, rowIndex) {
 }
 
 function parseCSV(csvText) {
-    // Use PapaParse for robust CSV parsing
     const parsed = Papa.parse(csvText, {
         header: true,
         skipEmptyLines: true,
@@ -319,10 +327,9 @@ function parseCSV(csvText) {
 
     const tests = [];
     const validationErrors = [];
-    let rowIndex = 2; // Start at 2 (1 is header)
+    let rowIndex = 2;
 
     for (const row of parsed.data) {
-        // Skip rows with missing required fields
         if (!row.Email || !row['Testing Date'] || !row['Event Name'] || !row['Queue Number']) {
             rowIndex++;
             continue;
@@ -336,7 +343,6 @@ function parseCSV(csvText) {
             queueAnchor: row['Queue Anchor'] ? parseInt(row['Queue Anchor']) : null
         };
 
-        // Validate the test data
         const errors = validateTestData(test, rowIndex);
         if (errors.length > 0) {
             validationErrors.push(...errors);
@@ -347,9 +353,8 @@ function parseCSV(csvText) {
         rowIndex++;
     }
 
-    // If there are validation errors, throw them
     if (validationErrors.length > 0) {
-        const errorMsg = validationErrors.slice(0, 10).join('\n'); // Show first 10 errors
+        const errorMsg = validationErrors.slice(0, 10).join('\n');
         const remaining = validationErrors.length - 10;
         throw new Error(
             `Found ${validationErrors.length} validation error(s):\n\n${errorMsg}` +
@@ -377,7 +382,7 @@ function processNewTests(newTests) {
 
     for (const [event, nums] of Object.entries(events)) {
         const anchor = Math.ceil(Math.max(...nums) / 1000) * 1000;
-        warnings.push(`⚠ No anchor for "${event}", using ${anchor.toLocaleString()}`);
+        warnings.push(`No anchor for "${event}", using ${anchor.toLocaleString()}`);
         newTests.forEach(t => {
             if (t.eventName === event && t.queueAnchor === null) t.queueAnchor = anchor;
         });
@@ -398,7 +403,10 @@ function recalculateAll() {
         const tests = groups[email].sort((a, b) => new Date(a.testingDate) - new Date(b.testingDate));
         tests.forEach((t, i) => {
             t.testingNum = i + 1;
-            t.queuePercent = (t.queueNumber / t.queueAnchor) * 100;
+            // Guard against division by zero
+            t.queuePercent = (t.queueAnchor && t.queueAnchor > 0)
+                ? (t.queueNumber / t.queueAnchor) * 100
+                : 0;
             t.queueChangePercent = i > 0 ? t.queuePercent - tests[i-1].queuePercent : 0;
         });
     }
@@ -410,58 +418,98 @@ function renderTable() {
     const tbody = document.getElementById('tableBody');
     tbody.innerHTML = '';
 
+    // Update compare button visibility
+    const compareBtn = document.getElementById('compareBtn');
+    if (compareBtn) {
+        compareBtn.style.display = compareMode ? 'none' : 'inline-flex';
+    }
+
     if (data.length === 0) {
-        // Show specific message based on filter
         let message = 'No data. Import CSV to start!';
         if (currentFilter === 'improving' || currentFilter === 'declining') {
-            message = '⚠️ No results: Accounts need at least 2 tests to show improvement/decline.';
+            message = 'No results: Accounts need at least 2 tests to show improvement/decline.';
+        } else if (currentFilter.startsWith('group:')) {
+            message = 'No accounts in this group yet.';
         } else if (allTests.length > 0) {
             message = 'No accounts match this filter.';
         }
 
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:#86868b;">${message}</td></tr>`;
+        const row = tbody.insertRow();
+        const cell = row.insertCell();
+        cell.colSpan = 7;
+        cell.style.textAlign = 'center';
+        cell.style.padding = '40px';
+        cell.style.color = '#86868b';
+        cell.textContent = message;
         updateStats([]);
         return;
     }
 
     data.sort((a, b) => (getOverallChange(b.email) || 0) - (getOverallChange(a.email) || 0));
 
-    // Limit visible rows for performance
     const visibleData = data.slice(0, visibleRowCount);
     const hasMore = data.length > visibleRowCount;
 
     visibleData.forEach(account => {
         const row = tbody.insertRow();
-        
+
         // Email cell
         const emailCell = row.insertCell();
         const emailDiv = document.createElement('div');
         emailDiv.className = 'email-cell';
-        emailDiv.textContent = account.email;
-        
-        // Add best position diamond
+
+        // Compare checkbox
+        if (compareMode) {
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'compare-checkbox';
+            cb.checked = selectedForCompare.has(account.email);
+            cb.onchange = () => {
+                if (cb.checked) {
+                    selectedForCompare.add(account.email);
+                } else {
+                    selectedForCompare.delete(account.email);
+                }
+                updateCompareButton();
+            };
+            emailDiv.appendChild(cb);
+        }
+
+        const emailText = document.createElement('span');
+        emailText.textContent = account.email;
+        emailDiv.appendChild(emailText);
+
+        // Group badge
+        const groupName = getAccountGroup(account.email);
+        if (groupName) {
+            const groupBadge = document.createElement('span');
+            groupBadge.className = 'badge group-badge';
+            groupBadge.textContent = groupName;
+            emailDiv.appendChild(groupBadge);
+        }
+
         if (window.bestEmail && account.email === window.bestEmail) {
             const badge = document.createElement('span');
             badge.className = 'badge best';
-            badge.textContent = '💎 Best';
+            badge.textContent = 'Best';
             emailDiv.appendChild(badge);
         }
-        
+
         if (hasJuice(account)) {
             const badge = document.createElement('span');
             badge.className = 'badge juice';
-            badge.textContent = '🔥 Juice';
+            badge.textContent = 'Juice';
             emailDiv.appendChild(badge);
         }
-        
+
         const btn = document.createElement('button');
         btn.className = 'view-all-btn';
-        btn.textContent = 'View All';
+        btn.textContent = 'Timeline';
         btn.dataset.email = account.email;
         emailDiv.appendChild(btn);
-        
+
         emailCell.appendChild(emailDiv);
-        
+
         // Change cell
         const changeCell = row.insertCell();
         const change = getOverallChange(account.email);
@@ -469,7 +517,7 @@ function renderTable() {
         span.className = 'change-cell ' + (change === null ? 'no-change' : change > 0 ? 'improved' : 'declined');
         span.textContent = change === null ? 'N/A' : (change >= 0 ? '+' : '') + change.toFixed(1) + '%';
         changeCell.appendChild(span);
-        
+
         // Test cells
         const recent = account.tests.slice(0, 5);
         for (let i = 0; i < 5; i++) {
@@ -478,7 +526,6 @@ function renderTable() {
         }
     });
 
-    // Add "Show More" button if needed
     if (hasMore) {
         const row = tbody.insertRow();
         const cell = row.insertCell();
@@ -499,7 +546,6 @@ function renderTable() {
 
     updateStats(allTests);
 
-    // Log performance info
     if (data.length > INITIAL_ROW_LIMIT) {
         console.log(`Performance: Showing ${visibleData.length} of ${data.length} accounts`);
     }
@@ -509,13 +555,12 @@ function createTestCell(test, email) {
     const div = document.createElement('div');
     div.className = 'test-cell ' + getColorClass(test.queuePercent);
     div.style.minWidth = '100px';
-    // Store test data as data attributes for event delegation
     div.dataset.email = email;
     div.dataset.testData = JSON.stringify(test);
 
     const info = document.createElement('span');
     info.className = 'info-icon';
-    info.textContent = 'ℹ️';
+    info.textContent = 'i';
     div.appendChild(info);
 
     const nums = document.createElement('div');
@@ -549,13 +594,17 @@ function getTableData() {
 function shouldInclude(email, tests) {
     const latest = tests[0];
     const change = getOverallChange(email);
-    
-    // Handle search filter
+
     if (currentFilter.startsWith('search:')) {
         const query = currentFilter.replace('search:', '').toLowerCase();
         return email.toLowerCase().includes(query);
     }
-    
+
+    if (currentFilter.startsWith('group:')) {
+        const groupName = currentFilter.replace('group:', '');
+        return getAccountGroup(email) === groupName;
+    }
+
     switch (currentFilter) {
         case 'instants': return latest.queuePercent <= 1;
         case 'juice': return latest.queuePercent <= settings.juicePercent && latest.queueAnchor >= settings.juiceAnchor;
@@ -564,6 +613,450 @@ function shouldInclude(email, tests) {
         case 'declining': return change !== null && change < 0;
         default: return true;
     }
+}
+
+// ============================
+// ACCOUNT GROUPING
+// ============================
+
+function getAccountGroup(email) {
+    if (!settings.groups) return null;
+    for (const [groupName, emails] of Object.entries(settings.groups)) {
+        if (emails.includes(email)) return groupName;
+    }
+    return null;
+}
+
+function showGroupManager() {
+    const modal = document.getElementById('groupModal');
+    modal.classList.add('visible');
+    renderGroupList();
+}
+
+function closeGroupModal() {
+    document.getElementById('groupModal').classList.remove('visible');
+}
+
+function renderGroupList() {
+    const container = document.getElementById('groupList');
+    container.innerHTML = '';
+
+    if (!settings.groups || Object.keys(settings.groups).length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'group-empty';
+        empty.textContent = 'No groups yet. Create one above!';
+        container.appendChild(empty);
+        return;
+    }
+
+    for (const [name, emails] of Object.entries(settings.groups)) {
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'group-item';
+
+        const header = document.createElement('div');
+        header.className = 'group-item-header';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'group-item-name';
+        nameSpan.textContent = name;
+        header.appendChild(nameSpan);
+
+        const countSpan = document.createElement('span');
+        countSpan.className = 'group-item-count';
+        countSpan.textContent = `${emails.length} account${emails.length !== 1 ? 's' : ''}`;
+        header.appendChild(countSpan);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'group-delete-btn';
+        deleteBtn.textContent = '\u2715';
+        deleteBtn.title = 'Delete group';
+        deleteBtn.onclick = () => deleteGroup(name);
+        header.appendChild(deleteBtn);
+
+        groupDiv.appendChild(header);
+
+        const emailList = document.createElement('div');
+        emailList.className = 'group-email-list';
+        emails.forEach(email => {
+            const emailRow = document.createElement('div');
+            emailRow.className = 'group-email-row';
+
+            const emailSpan = document.createElement('span');
+            emailSpan.textContent = email;
+            emailRow.appendChild(emailSpan);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'group-email-remove';
+            removeBtn.textContent = '\u2715';
+            removeBtn.onclick = () => removeFromGroup(name, email);
+            emailRow.appendChild(removeBtn);
+
+            emailList.appendChild(emailRow);
+        });
+        groupDiv.appendChild(emailList);
+
+        // Add account input
+        const addRow = document.createElement('div');
+        addRow.className = 'group-add-row';
+        const addInput = document.createElement('input');
+        addInput.type = 'text';
+        addInput.placeholder = 'Add email to group...';
+        addInput.className = 'group-add-input';
+
+        const addBtn = document.createElement('button');
+        addBtn.className = 'group-add-btn';
+        addBtn.textContent = 'Add';
+        addBtn.onclick = () => {
+            const email = addInput.value.trim();
+            if (email) {
+                addToGroup(name, email);
+                addInput.value = '';
+            }
+        };
+        addInput.onkeydown = (e) => {
+            if (e.key === 'Enter') addBtn.click();
+        };
+        addRow.appendChild(addInput);
+        addRow.appendChild(addBtn);
+        groupDiv.appendChild(addRow);
+
+        container.appendChild(groupDiv);
+    }
+
+    // Update filter chips for groups
+    renderGroupFilterChips();
+}
+
+function createGroup() {
+    const input = document.getElementById('newGroupName');
+    const name = input.value.trim();
+    if (!name) {
+        showToast('Enter a group name', 'error');
+        return;
+    }
+    if (!settings.groups) settings.groups = {};
+    if (settings.groups[name]) {
+        showToast('Group already exists', 'error');
+        return;
+    }
+    settings.groups[name] = [];
+    saveSettings();
+    renderGroupList();
+    input.value = '';
+    showToast(`Group "${name}" created`, 'success');
+}
+
+function deleteGroup(name) {
+    delete settings.groups[name];
+    saveSettings();
+    renderGroupList();
+    if (currentFilter === 'group:' + name) {
+        currentFilter = 'all';
+        document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+        document.querySelector('.filter-chip[data-filter="all"]').classList.add('active');
+        renderTable();
+    }
+    showToast(`Group "${name}" deleted`, 'success');
+}
+
+function addToGroup(groupName, email) {
+    // Check if email exists in data
+    const exists = allTests.some(t => t.email === email);
+    if (!exists) {
+        showToast(`Email "${email}" not found in your data`, 'error');
+        return;
+    }
+
+    // Remove from other groups first
+    for (const [name, emails] of Object.entries(settings.groups)) {
+        const idx = emails.indexOf(email);
+        if (idx !== -1) emails.splice(idx, 1);
+    }
+
+    if (!settings.groups[groupName].includes(email)) {
+        settings.groups[groupName].push(email);
+    }
+    saveSettings();
+    renderGroupList();
+    renderTable();
+}
+
+function removeFromGroup(groupName, email) {
+    const idx = settings.groups[groupName].indexOf(email);
+    if (idx !== -1) {
+        settings.groups[groupName].splice(idx, 1);
+        saveSettings();
+        renderGroupList();
+        renderTable();
+    }
+}
+
+function renderGroupFilterChips() {
+    // Remove existing group chips
+    document.querySelectorAll('.filter-chip.group-chip').forEach(c => c.remove());
+
+    if (!settings.groups) return;
+
+    const chipContainer = document.querySelector('.filter-chips');
+    for (const name of Object.keys(settings.groups)) {
+        if (settings.groups[name].length === 0) continue;
+        const chip = document.createElement('button');
+        chip.className = 'filter-chip group-chip';
+        chip.dataset.filter = 'group:' + name;
+        chip.textContent = name;
+        if (currentFilter === 'group:' + name) chip.classList.add('active');
+        chip.onclick = () => {
+            currentFilter = 'group:' + name;
+            visibleRowCount = INITIAL_ROW_LIMIT;
+            document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+            showLoadingState();
+            requestAnimationFrame(() => {
+                renderTable();
+                hideLoadingState();
+            });
+        };
+        chipContainer.appendChild(chip);
+    }
+}
+
+// ============================
+// MULTI-ACCOUNT COMPARISON
+// ============================
+
+function toggleCompareMode() {
+    compareMode = !compareMode;
+    selectedForCompare.clear();
+
+    const compareBtn = document.getElementById('compareBtn');
+    const compareActions = document.getElementById('compareActions');
+
+    if (compareMode) {
+        compareBtn.style.display = 'none';
+        compareActions.style.display = 'flex';
+    } else {
+        compareBtn.style.display = 'inline-flex';
+        compareActions.style.display = 'none';
+    }
+
+    renderTable();
+}
+
+function updateCompareButton() {
+    const runBtn = document.getElementById('runCompareBtn');
+    if (runBtn) {
+        runBtn.disabled = selectedForCompare.size < 2;
+        runBtn.textContent = `Compare (${selectedForCompare.size})`;
+    }
+}
+
+function cancelCompare() {
+    compareMode = false;
+    selectedForCompare.clear();
+    document.getElementById('compareBtn').style.display = 'inline-flex';
+    document.getElementById('compareActions').style.display = 'none';
+    renderTable();
+}
+
+function runComparison() {
+    if (selectedForCompare.size < 2) {
+        showToast('Select at least 2 accounts to compare', 'error');
+        return;
+    }
+    showComparisonView(Array.from(selectedForCompare));
+}
+
+function showComparisonView(emails) {
+    compareMode = false;
+    document.getElementById('compareBtn').style.display = 'inline-flex';
+    document.getElementById('compareActions').style.display = 'none';
+
+    document.getElementById('mainContent').style.display = 'none';
+    document.getElementById('timelinePage').style.display = 'none';
+    document.getElementById('comparisonPage').style.display = 'block';
+    document.getElementById('backBtn').style.display = 'flex';
+    document.getElementById('searchWrapper').style.display = 'none';
+    document.getElementById('importBtn').style.display = 'none';
+
+    const container = document.getElementById('comparisonContent');
+    container.innerHTML = '';
+
+    // Colors for each account line
+    const colors = ['#007AFF', '#FF3B30', '#34C759', '#FF9500', '#AF52DE', '#FF2D55', '#5AC8FA', '#FFCC00'];
+
+    // Build comparison stats table
+    const statsTable = document.createElement('div');
+    statsTable.className = 'comparison-table';
+
+    // Header row
+    const headerRow = document.createElement('div');
+    headerRow.className = 'comparison-header-row';
+    const headerLabels = ['Account', 'Tests', 'Best %', 'Worst %', 'Average %', 'Latest %', 'Change %'];
+    headerLabels.forEach(label => {
+        const cell = document.createElement('div');
+        cell.className = 'comparison-header-cell';
+        cell.textContent = label;
+        headerRow.appendChild(cell);
+    });
+    statsTable.appendChild(headerRow);
+
+    const accountData = [];
+
+    emails.forEach((email, idx) => {
+        const tests = allTests.filter(t => t.email === email).sort((a, b) => new Date(a.testingDate) - new Date(b.testingDate));
+        if (tests.length === 0) return;
+
+        const pcts = tests.map(t => t.queuePercent);
+        const best = Math.min(...pcts);
+        const worst = Math.max(...pcts);
+        const avg = pcts.reduce((a, b) => a + b, 0) / pcts.length;
+        const latest = pcts[pcts.length - 1];
+        const change = getOverallChange(email);
+
+        accountData.push({ email, tests, color: colors[idx % colors.length] });
+
+        const row = document.createElement('div');
+        row.className = 'comparison-data-row';
+
+        const colorDot = document.createElement('span');
+        colorDot.className = 'comparison-color-dot';
+        colorDot.style.backgroundColor = colors[idx % colors.length];
+
+        const emailCell = document.createElement('div');
+        emailCell.className = 'comparison-cell comparison-email';
+        emailCell.appendChild(colorDot);
+        const emailSpan = document.createElement('span');
+        emailSpan.textContent = email;
+        emailCell.appendChild(emailSpan);
+        row.appendChild(emailCell);
+
+        const values = [
+            tests.length.toString(),
+            best.toFixed(1) + '%',
+            worst.toFixed(1) + '%',
+            avg.toFixed(1) + '%',
+            latest.toFixed(1) + '%',
+            change !== null ? (change >= 0 ? '+' : '') + change.toFixed(1) + '%' : 'N/A'
+        ];
+
+        values.forEach((val, vi) => {
+            const cell = document.createElement('div');
+            cell.className = 'comparison-cell';
+            if (vi === 5) { // change column
+                cell.classList.add(change === null ? 'no-change' : change > 0 ? 'improved' : 'declined');
+            }
+            cell.textContent = val;
+            row.appendChild(cell);
+        });
+
+        statsTable.appendChild(row);
+    });
+
+    container.appendChild(statsTable);
+
+    // Comparison graph
+    const graphTitle = document.createElement('div');
+    graphTitle.className = 'comparison-graph-title';
+    graphTitle.textContent = 'Position Over Time';
+    container.appendChild(graphTitle);
+
+    const graphWrapper = document.createElement('div');
+    graphWrapper.className = 'comparison-graph-wrapper';
+
+    // Build SVG overlay graph
+    const graphCanvas = document.createElement('div');
+    graphCanvas.className = 'comparison-graph-canvas';
+
+    // Y-axis
+    const yAxis = document.createElement('div');
+    yAxis.className = 'y-axis';
+    [0, 25, 50, 75, 100].forEach(v => {
+        const lbl = document.createElement('div');
+        lbl.className = 'y-label';
+        lbl.textContent = v + '%';
+        yAxis.appendChild(lbl);
+    });
+    graphCanvas.appendChild(yAxis);
+
+    // Grid
+    const gridLines = document.createElement('div');
+    gridLines.className = 'grid-lines';
+    [0, 25, 50, 75, 100].forEach(v => {
+        const line = document.createElement('div');
+        line.className = 'grid-line';
+        line.style.top = v + '%';
+        gridLines.appendChild(line);
+    });
+    graphCanvas.appendChild(gridLines);
+
+    // Graph area with SVG
+    const graphArea = document.createElement('div');
+    graphArea.className = 'graph-area';
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
+    svg.setAttribute('viewBox', '0 0 100 100');
+    svg.setAttribute('preserveAspectRatio', 'none');
+
+    accountData.forEach(({ tests, color }) => {
+        if (tests.length < 2) return;
+        const displayTests = downsampleData(tests, 150);
+        const xStep = 100 / (displayTests.length - 1 || 1);
+        const points = displayTests.map((t, i) => `${i * xStep},${t.queuePercent}`).join(' ');
+
+        const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+        polyline.setAttribute('points', points);
+        polyline.setAttribute('fill', 'none');
+        polyline.setAttribute('stroke', color);
+        polyline.setAttribute('stroke-width', '2.5');
+        polyline.setAttribute('vector-effect', 'non-scaling-stroke');
+        svg.appendChild(polyline);
+    });
+
+    graphArea.appendChild(svg);
+    graphCanvas.appendChild(graphArea);
+
+    graphWrapper.appendChild(graphCanvas);
+    container.appendChild(graphWrapper);
+
+    // Legend
+    const legend = document.createElement('div');
+    legend.className = 'comparison-legend';
+    accountData.forEach(({ email, color }) => {
+        const item = document.createElement('div');
+        item.className = 'comparison-legend-item';
+        const dot = document.createElement('span');
+        dot.className = 'comparison-color-dot';
+        dot.style.backgroundColor = color;
+        item.appendChild(dot);
+        const label = document.createElement('span');
+        label.textContent = email;
+        item.appendChild(label);
+        legend.appendChild(item);
+    });
+    container.appendChild(legend);
+}
+
+function hideComparisonView() {
+    document.getElementById('comparisonPage').style.display = 'none';
+    document.getElementById('mainContent').style.display = 'block';
+    document.getElementById('backBtn').style.display = 'none';
+    document.getElementById('searchWrapper').style.display = 'flex';
+    document.getElementById('importBtn').style.display = 'block';
+    selectedForCompare.clear();
+}
+
+// ============================
+// HELP SYSTEM
+// ============================
+
+function showHelp() {
+    document.getElementById('helpModal').classList.add('visible');
+}
+
+function closeHelpModal() {
+    document.getElementById('helpModal').classList.remove('visible');
 }
 
 // Timeline
@@ -583,6 +1076,7 @@ function showTimeline(email) {
     renderGraph(tests);
 
     document.getElementById('mainContent').style.display = 'none';
+    document.getElementById('comparisonPage').style.display = 'none';
     document.getElementById('timelinePage').style.display = 'block';
     document.getElementById('backBtn').style.display = 'flex';
     document.getElementById('searchWrapper').style.display = 'none';
@@ -592,6 +1086,7 @@ function showTimeline(email) {
 function hideTimeline() {
     document.getElementById('mainContent').style.display = 'block';
     document.getElementById('timelinePage').style.display = 'none';
+    document.getElementById('comparisonPage').style.display = 'none';
     document.getElementById('backBtn').style.display = 'none';
     document.getElementById('searchWrapper').style.display = 'flex';
     document.getElementById('importBtn').style.display = 'block';
@@ -599,16 +1094,12 @@ function hideTimeline() {
 
 function downsampleData(tests, maxPoints = 100) {
     if (tests.length <= maxPoints) return tests;
-
-    // Always include first and last points
     const result = [tests[0]];
     const step = (tests.length - 1) / (maxPoints - 1);
-
     for (let i = 1; i < maxPoints - 1; i++) {
         const idx = Math.round(i * step);
         result.push(tests[idx]);
     }
-
     result.push(tests[tests.length - 1]);
     return result;
 }
@@ -617,22 +1108,17 @@ function renderGraph(tests) {
     const area = document.getElementById('graphArea');
     const svg = area.querySelector('svg');
 
-    // Clear points
     area.querySelectorAll('.graph-point').forEach(p => p.remove());
 
-    // Downsample if too many points (performance optimization)
-    const maxPoints = 150; // Limit visible points for performance
+    const maxPoints = 150;
     const displayTests = downsampleData(tests, maxPoints);
 
-    // Calculate positions
     const xStep = 100 / (displayTests.length - 1 || 1);
     const points = displayTests.map((t, i) => ({ x: i * xStep, y: t.queuePercent, test: t }));
 
-    // Update line
     const line = document.getElementById('graphLine');
     line.setAttribute('points', points.map(p => `${p.x},${p.y}`).join(' '));
 
-    // Create point elements
     points.forEach((p, i) => {
         const el = document.createElement('div');
         el.className = 'graph-point';
@@ -648,7 +1134,6 @@ function renderGraph(tests) {
         area.appendChild(el);
     });
 
-    // Update X-axis with all original data for accuracy
     const xAxis = document.getElementById('xAxis');
     xAxis.innerHTML = '';
     const step = Math.max(1, Math.floor(tests.length / 5));
@@ -662,7 +1147,6 @@ function renderGraph(tests) {
         }
     });
 
-    // Show downsampling notice if applicable
     if (tests.length > maxPoints) {
         console.log(`Graph downsampled: showing ${displayTests.length} of ${tests.length} data points for performance`);
     }
@@ -676,9 +1160,25 @@ function showTooltip(e) {
     document.getElementById('tooltipPercent').textContent = e.target.dataset.percent + '%';
     document.getElementById('tooltipChange').textContent = (parseFloat(e.target.dataset.change) >= 0 ? '+' : '') + e.target.dataset.change + '%';
     tt.classList.add('visible');
+
     const rect = e.target.getBoundingClientRect();
-    tt.style.left = rect.left + 'px';
-    tt.style.top = (rect.top - tt.offsetHeight - 10) + 'px';
+    const ttWidth = tt.offsetWidth;
+    const ttHeight = tt.offsetHeight;
+
+    // Keep tooltip within viewport
+    let left = rect.left;
+    let top = rect.top - ttHeight - 10;
+
+    if (left + ttWidth > window.innerWidth) {
+        left = window.innerWidth - ttWidth - 10;
+    }
+    if (left < 10) left = 10;
+    if (top < 10) {
+        top = rect.bottom + 10;
+    }
+
+    tt.style.left = left + 'px';
+    tt.style.top = top + 'px';
 }
 
 function hideTooltip() {
@@ -714,7 +1214,6 @@ function hasJuice(account) {
 function getOverallChange(email) {
     const tests = allTests.filter(t => t.email === email).sort((a, b) => new Date(a.testingDate) - new Date(b.testingDate));
     if (tests.length < 2) return null;
-    // INVERTED: previous - current (so lower % = positive change)
     return tests[tests.length - 2].queuePercent - tests[tests.length - 1].queuePercent;
 }
 
@@ -724,48 +1223,40 @@ function updateStats(tests) {
     if (tests.length > 0) {
         const bestPercent = Math.min(...tests.map(t => t.queuePercent));
         document.getElementById('bestPosition').textContent = bestPercent.toFixed(1) + '%';
-        
-        // Store best email for click handler
         const bestTest = tests.find(t => t.queuePercent === bestPercent);
         if (bestTest) {
             window.bestEmail = bestTest.email;
         }
     } else {
-        document.getElementById('bestPosition').textContent = '—';
+        document.getElementById('bestPosition').textContent = '\u2014';
         window.bestEmail = null;
     }
 }
 
 function scrollToBestPosition() {
     if (!window.bestEmail) return;
-    
-    // Find the row with best email
+
     const rows = document.querySelectorAll('#tableBody tr');
     let targetRow = null;
-    
+
     rows.forEach(row => {
         const emailCell = row.querySelector('.email-cell');
         if (emailCell && emailCell.textContent.includes(window.bestEmail)) {
             targetRow = row;
         }
     });
-    
+
     if (targetRow) {
-        // Get table container
         const tableContainer = document.querySelector('.table-container');
-        
-        // Calculate scroll position
         const rowTop = targetRow.offsetTop;
         const containerHeight = tableContainer.clientHeight;
         const rowHeight = targetRow.clientHeight;
-        
-        // Scroll to center the row
+
         tableContainer.scrollTo({
             top: rowTop - (containerHeight / 2) + (rowHeight / 2),
             behavior: 'smooth'
         });
-        
-        // Add highlight animation
+
         targetRow.classList.add('highlight');
         setTimeout(() => {
             targetRow.classList.remove('highlight');
@@ -779,49 +1270,42 @@ function showTestDetails(test, email) {
     const prev = idx > 0 ? allEmail[idx - 1] : null;
     const change = prev ? (test.queuePercent - prev.queuePercent).toFixed(2) : null;
     const days = Math.floor((new Date() - new Date(test.testingDate)) / 86400000);
-    
-    // Populate modal
+
+    // Populate modal safely using textContent (no innerHTML XSS)
     const modalBody = document.getElementById('modalBody');
-    modalBody.innerHTML = `
-        <div class="modal-detail-row">
-            <span class="modal-detail-label">Email</span>
-            <span class="modal-detail-value">${email}</span>
-        </div>
-        <div class="modal-detail-row">
-            <span class="modal-detail-label">Event</span>
-            <span class="modal-detail-value">${test.eventName}</span>
-        </div>
-        <div class="modal-detail-row">
-            <span class="modal-detail-label">Test #</span>
-            <span class="modal-detail-value">${test.testingNum}</span>
-        </div>
-        <div class="modal-detail-row">
-            <span class="modal-detail-label">Date</span>
-            <span class="modal-detail-value">${test.testingDate}</span>
-        </div>
-        <div class="modal-detail-row">
-            <span class="modal-detail-label">Queue</span>
-            <span class="modal-detail-value">${formatNum(test.queueNumber)}/${formatNum(test.queueAnchor)}</span>
-        </div>
-        <div class="modal-detail-row">
-            <span class="modal-detail-label">Queue %</span>
-            <span class="modal-detail-value">${test.queuePercent.toFixed(2)}%</span>
-        </div>
-        <div class="modal-detail-row">
-            <span class="modal-detail-label">Change</span>
-            <span class="modal-detail-value">${change !== null ? (change >= 0 ? '+' : '') + change + '%' : 'N/A'}</span>
-        </div>
-        <div class="modal-detail-row">
-            <span class="modal-detail-label">Days Since</span>
-            <span class="modal-detail-value">${days} days</span>
-        </div>
-    `;
-    
-    // Show modal
+    modalBody.innerHTML = '';
+
+    const details = [
+        { label: 'Email', value: email },
+        { label: 'Event', value: test.eventName },
+        { label: 'Test #', value: String(test.testingNum) },
+        { label: 'Date', value: test.testingDate },
+        { label: 'Queue', value: formatNum(test.queueNumber) + '/' + formatNum(test.queueAnchor) },
+        { label: 'Queue %', value: test.queuePercent.toFixed(2) + '%' },
+        { label: 'Change', value: change !== null ? (change >= 0 ? '+' : '') + change + '%' : 'N/A' },
+        { label: 'Days Since', value: days + ' days' }
+    ];
+
+    details.forEach(d => {
+        const row = document.createElement('div');
+        row.className = 'modal-detail-row';
+
+        const label = document.createElement('span');
+        label.className = 'modal-detail-label';
+        label.textContent = d.label;
+        row.appendChild(label);
+
+        const value = document.createElement('span');
+        value.className = 'modal-detail-value';
+        value.textContent = d.value;
+        row.appendChild(value);
+
+        modalBody.appendChild(row);
+    });
+
     const modal = document.getElementById('testModal');
     modal.classList.add('visible');
-    
-    // Close on escape key
+
     const escHandler = (e) => {
         if (e.key === 'Escape') {
             closeTestModal();
@@ -829,8 +1313,7 @@ function showTestDetails(test, email) {
         }
     };
     document.addEventListener('keydown', escHandler);
-    
-    // Close on backdrop click
+
     modal.onclick = (e) => {
         if (e.target === modal) {
             closeTestModal();
@@ -839,8 +1322,7 @@ function showTestDetails(test, email) {
 }
 
 function closeTestModal() {
-    const modal = document.getElementById('testModal');
-    modal.classList.remove('visible');
+    document.getElementById('testModal').classList.remove('visible');
 }
 
 // Loading State Helpers
@@ -858,16 +1340,13 @@ function hideLoadingState() {
 
 // Event Listeners
 function setupEventListeners() {
-    // Event delegation for table clicks (prevents memory leaks)
     const tableBody = document.getElementById('tableBody');
     tableBody.addEventListener('click', (e) => {
-        // Handle "View All" button clicks
         if (e.target.classList.contains('view-all-btn')) {
             const email = e.target.dataset.email;
             if (email) showTimeline(email);
         }
 
-        // Handle test cell clicks
         const testCell = e.target.closest('.test-cell');
         if (testCell && testCell.dataset.testData) {
             try {
@@ -880,12 +1359,11 @@ function setupEventListeners() {
         }
     });
 
-    // Best Position click
     const bestCard = document.getElementById('bestPositionCard');
     if (bestCard) {
         bestCard.onclick = scrollToBestPosition;
     }
-    
+
     document.getElementById('lightBtn').onclick = () => {
         document.body.classList.remove('dark');
         document.getElementById('lightBtn').classList.add('active');
@@ -893,7 +1371,7 @@ function setupEventListeners() {
         settings.darkMode = false;
         saveSettings();
     };
-    
+
     document.getElementById('darkBtn').onclick = () => {
         document.body.classList.add('dark');
         document.getElementById('darkBtn').classList.add('active');
@@ -901,19 +1379,53 @@ function setupEventListeners() {
         settings.darkMode = true;
         saveSettings();
     };
-    
+
     document.querySelector('.settings-btn').onclick = () => document.getElementById('settingsPanel').classList.toggle('open');
     document.querySelector('.close-settings').onclick = () => document.getElementById('settingsPanel').classList.remove('open');
-    
+
     document.getElementById('importBtn').onclick = importCSV;
-    document.getElementById('backBtn').onclick = hideTimeline;
+    document.getElementById('backBtn').onclick = () => {
+        if (document.getElementById('comparisonPage').style.display === 'block') {
+            hideComparisonView();
+        } else {
+            hideTimeline();
+        }
+    };
     document.getElementById('undoBtn').onclick = undo;
     document.getElementById('redoBtn').onclick = redo;
-    
+
+    // Help button
+    const helpBtn = document.getElementById('helpBtn');
+    if (helpBtn) helpBtn.onclick = showHelp;
+
+    // Compare buttons
+    const compareBtn = document.getElementById('compareBtn');
+    if (compareBtn) compareBtn.onclick = toggleCompareMode;
+
+    const cancelCompareBtn = document.getElementById('cancelCompareBtn');
+    if (cancelCompareBtn) cancelCompareBtn.onclick = cancelCompare;
+
+    const runCompareBtn = document.getElementById('runCompareBtn');
+    if (runCompareBtn) runCompareBtn.onclick = runComparison;
+
+    // Group manager
+    const groupBtn = document.getElementById('groupBtn');
+    if (groupBtn) groupBtn.onclick = showGroupManager;
+
+    const createGroupBtn = document.getElementById('createGroupBtn');
+    if (createGroupBtn) createGroupBtn.onclick = createGroup;
+
+    const newGroupInput = document.getElementById('newGroupName');
+    if (newGroupInput) {
+        newGroupInput.onkeydown = (e) => {
+            if (e.key === 'Enter') createGroup();
+        };
+    }
+
     document.querySelectorAll('.filter-chip').forEach(chip => {
         chip.onclick = () => {
             currentFilter = chip.dataset.filter;
-            visibleRowCount = INITIAL_ROW_LIMIT; // Reset row count on filter change
+            visibleRowCount = INITIAL_ROW_LIMIT;
             document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
             chip.classList.add('active');
             showLoadingState();
@@ -923,84 +1435,102 @@ function setupEventListeners() {
             });
         };
     });
-    
+
     // Debounced search
     let searchTimeout;
     document.getElementById('searchInput').oninput = (e) => {
         const query = e.target.value.toLowerCase();
-
-        // Clear previous timeout
         clearTimeout(searchTimeout);
 
         if (query) {
             currentFilter = 'search:' + query;
-            // Deactivate all filter chips when searching
             document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
         } else {
             currentFilter = 'all';
-            // Re-activate "All" chip
             document.querySelectorAll('.filter-chip')[0].classList.add('active');
         }
 
-        // Reset row count on search
         visibleRowCount = INITIAL_ROW_LIMIT;
-
-        // Show loading and debounce
         showLoadingState();
         searchTimeout = setTimeout(() => {
             requestAnimationFrame(() => {
                 renderTable();
                 hideLoadingState();
             });
-        }, 300); // Wait 300ms after typing stops
+        }, 300);
     };
-    
+
+    // Settings with bounds validation
     document.getElementById('juicePercent').onchange = async (e) => {
-        settings.juicePercent = parseFloat(e.target.value);
+        let val = parseFloat(e.target.value);
+        if (isNaN(val) || val < 0) val = 0;
+        if (val > 100) val = 100;
+        e.target.value = val;
+        settings.juicePercent = val;
         await saveSettings();
-        renderTable();
-    };
-    
-    document.getElementById('juiceAnchor').onchange = async (e) => {
-        settings.juiceAnchor = parseInt(e.target.value);
-        await saveSettings();
+        showToast('Juice threshold updated', 'success');
         renderTable();
     };
 
+    document.getElementById('juiceAnchor').onchange = async (e) => {
+        let val = parseInt(e.target.value);
+        if (isNaN(val) || val < 0) val = 0;
+        if (val > 10000000) val = 10000000;
+        e.target.value = val;
+        settings.juiceAnchor = val;
+        await saveSettings();
+        showToast('Juice anchor updated', 'success');
+        renderTable();
+    };
+
+    // Row size selector
+    const rowSizeSelect = document.getElementById('rowSizeSelect');
+    if (rowSizeSelect) {
+        rowSizeSelect.onchange = async (e) => {
+            settings.rowSize = e.target.value;
+            applyRowSize();
+            await saveSettings();
+            showToast(`Row size set to ${ROW_SIZES[settings.rowSize].label}`, 'success');
+        };
+    }
+
     // Keyboard Shortcuts
     document.addEventListener('keydown', (e) => {
-        // Ctrl/Cmd + Z = Undo
         if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
             e.preventDefault();
             undo();
         }
-        // Ctrl/Cmd + Shift + Z or Ctrl/Cmd + Y = Redo
         if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
             e.preventDefault();
             redo();
         }
-        // Ctrl/Cmd + I = Import
         if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
             e.preventDefault();
             importCSV();
         }
-        // Ctrl/Cmd + , = Settings
         if ((e.ctrlKey || e.metaKey) && e.key === ',') {
             e.preventDefault();
             document.getElementById('settingsPanel').classList.toggle('open');
         }
-        // Escape = Close settings/timeline
         if (e.key === 'Escape') {
-            if (document.getElementById('settingsPanel').classList.contains('open')) {
+            if (document.getElementById('helpModal').classList.contains('visible')) {
+                closeHelpModal();
+            } else if (document.getElementById('groupModal').classList.contains('visible')) {
+                closeGroupModal();
+            } else if (document.getElementById('settingsPanel').classList.contains('open')) {
                 document.getElementById('settingsPanel').classList.remove('open');
+            } else if (document.getElementById('comparisonPage').style.display === 'block') {
+                hideComparisonView();
             } else if (document.getElementById('timelinePage').style.display === 'block') {
                 hideTimeline();
             }
         }
-        // Ctrl/Cmd + F = Focus search
         if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
             e.preventDefault();
             document.getElementById('searchInput').focus();
         }
     });
+
+    // Render group filter chips on startup
+    renderGroupFilterChips();
 }

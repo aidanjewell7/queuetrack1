@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com; script-src 'self';">
     <title>QueueTrack</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
@@ -22,21 +23,28 @@
             <!-- Top Bar -->
             <div class="top-bar">
                 <div class="left-section">
-                    <button class="back-btn" id="backBtn" style="display: none;">🏠</button>
+                    <button class="back-btn" id="backBtn" style="display: none;">&#x1F3E0;</button>
                     <div class="app-title">QueueTrack</div>
                     <div class="search-wrapper" id="searchWrapper">
-                        <span class="search-icon">🔍</span>
+                        <span class="search-icon">&#x1F50D;</span>
                         <input type="text" class="search-input" id="searchInput" placeholder="Search emails...">
                     </div>
                 </div>
                 <div class="right-section">
-                    <button class="icon-btn" id="undoBtn" title="Undo" disabled>↶</button>
-                    <button class="icon-btn" id="redoBtn" title="Redo" disabled>↷</button>
+                    <button class="icon-btn" id="helpBtn" title="Help &amp; Guide">?</button>
+                    <button class="icon-btn" id="undoBtn" title="Undo" disabled>&#x21B6;</button>
+                    <button class="icon-btn" id="redoBtn" title="Redo" disabled>&#x21B7;</button>
                     <div class="mode-toggle">
-                        <button class="mode-btn active" id="lightBtn">☀️</button>
-                        <button class="mode-btn" id="darkBtn">🌙</button>
+                        <button class="mode-btn active" id="lightBtn">&#x2600;&#xFE0F;</button>
+                        <button class="mode-btn" id="darkBtn">&#x1F319;</button>
                     </div>
-                    <button class="settings-btn">⚙️</button>
+                    <button class="settings-btn">&#x2699;&#xFE0F;</button>
+                    <button class="action-btn" id="groupBtn" title="Manage Groups">Groups</button>
+                    <button class="action-btn compare" id="compareBtn" title="Compare Accounts">Compare</button>
+                    <div class="compare-actions" id="compareActions" style="display: none;">
+                        <button class="action-btn compare" id="runCompareBtn" disabled>Compare (0)</button>
+                        <button class="action-btn cancel" id="cancelCompareBtn">Cancel</button>
+                    </div>
                     <button class="import-btn" id="importBtn">Import CSV</button>
                 </div>
             </div>
@@ -50,17 +58,18 @@
                     </div>
                     <div class="stat-card clickable" id="bestPositionCard">
                         <div class="stat-label">Best Position</div>
-                        <div class="stat-value" id="bestPosition">—</div>
+                        <div class="stat-value" id="bestPosition">&mdash;</div>
                     </div>
                 </div>
 
                 <div class="filter-chips">
                     <button class="filter-chip active" data-filter="all">All</button>
-                    <button class="filter-chip" data-filter="instants">⚡ Instants</button>
-                    <button class="filter-chip" data-filter="juice">🔥 Juice</button>
-                    <button class="filter-chip" data-filter="excellent">⭐ Excellent</button>
-                    <button class="filter-chip" data-filter="improving">↑ Improving</button>
-                    <button class="filter-chip" data-filter="declining">↓ Declining</button>
+                    <button class="filter-chip" data-filter="instants">Instants</button>
+                    <button class="filter-chip" data-filter="juice">Juice</button>
+                    <button class="filter-chip" data-filter="excellent">Excellent</button>
+                    <button class="filter-chip" data-filter="improving">Improving</button>
+                    <button class="filter-chip" data-filter="declining">Declining</button>
+                    <!-- Group filter chips are added dynamically -->
                 </div>
 
                 <div class="table-container">
@@ -90,26 +99,26 @@
             <!-- Timeline Content -->
             <div class="timeline-page" id="timelinePage" style="display: none;">
                 <div class="timeline-header">
-                    <div class="timeline-email" id="timelineEmail">—</div>
-                    <div class="timeline-subtitle" id="timelineSubtitle">—</div>
+                    <div class="timeline-email" id="timelineEmail">&mdash;</div>
+                    <div class="timeline-subtitle" id="timelineSubtitle">&mdash;</div>
                 </div>
 
                 <div class="timeline-stats">
                     <div class="timeline-stat">
                         <div class="timeline-stat-label">Best Position</div>
-                        <div class="timeline-stat-value" id="timelineBest">—</div>
+                        <div class="timeline-stat-value" id="timelineBest">&mdash;</div>
                     </div>
                     <div class="timeline-stat">
                         <div class="timeline-stat-label">Worst Position</div>
-                        <div class="timeline-stat-value" id="timelineWorst">—</div>
+                        <div class="timeline-stat-value" id="timelineWorst">&mdash;</div>
                     </div>
                     <div class="timeline-stat">
                         <div class="timeline-stat-label">Average</div>
-                        <div class="timeline-stat-value" id="timelineAvg">—</div>
+                        <div class="timeline-stat-value" id="timelineAvg">&mdash;</div>
                     </div>
                     <div class="timeline-stat">
                         <div class="timeline-stat-label">Total Tests</div>
-                        <div class="timeline-stat-value" id="timelineTotal">—</div>
+                        <div class="timeline-stat-value" id="timelineTotal">&mdash;</div>
                     </div>
                 </div>
 
@@ -143,25 +152,35 @@
                     <div class="point-tooltip" id="pointTooltip">
                         <div class="tooltip-row">
                             <span class="tooltip-label">Test #:</span>
-                            <span class="tooltip-value" id="tooltipTest">—</span>
+                            <span class="tooltip-value" id="tooltipTest">&mdash;</span>
                         </div>
                         <div class="tooltip-row">
                             <span class="tooltip-label">Date:</span>
-                            <span class="tooltip-value" id="tooltipDate">—</span>
+                            <span class="tooltip-value" id="tooltipDate">&mdash;</span>
                         </div>
                         <div class="tooltip-row">
                             <span class="tooltip-label">Queue:</span>
-                            <span class="tooltip-value" id="tooltipQueue">—</span>
+                            <span class="tooltip-value" id="tooltipQueue">&mdash;</span>
                         </div>
                         <div class="tooltip-row">
                             <span class="tooltip-label">Queue %:</span>
-                            <span class="tooltip-value" id="tooltipPercent">—</span>
+                            <span class="tooltip-value" id="tooltipPercent">&mdash;</span>
                         </div>
                         <div class="tooltip-row">
                             <span class="tooltip-label">Change:</span>
-                            <span class="tooltip-value" id="tooltipChange">—</span>
+                            <span class="tooltip-value" id="tooltipChange">&mdash;</span>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Comparison Page -->
+            <div class="comparison-page" id="comparisonPage" style="display: none;">
+                <div class="comparison-header">
+                    <div class="comparison-title">Account Comparison</div>
+                </div>
+                <div class="comparison-content" id="comparisonContent">
+                    <!-- Populated by JavaScript -->
                 </div>
             </div>
         </div>
@@ -171,35 +190,60 @@
     <div class="settings-panel" id="settingsPanel">
         <div class="settings-header">
             <div class="settings-title">Settings</div>
-            <button class="close-settings">✕</button>
+            <button class="close-settings">&times;</button>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-section-title">Display</div>
+
+            <div class="setting-item">
+                <label class="setting-label">Row Size</label>
+                <select class="setting-input" id="rowSizeSelect">
+                    <option value="compact">Compact - Show more rows</option>
+                    <option value="normal" selected>Normal</option>
+                    <option value="comfortable">Comfortable - Larger rows</option>
+                </select>
+                <div class="setting-description">Adjust row height to see more or fewer accounts at once</div>
+            </div>
         </div>
 
         <div class="settings-section">
             <div class="settings-section-title">Preferences</div>
-            
+
             <div class="setting-item">
                 <label class="setting-label">Juice Threshold (%)</label>
                 <input type="number" class="setting-input" id="juicePercent" value="10" min="0" max="100">
-                <div class="setting-description">Maximum queue % to qualify as "Juice"</div>
+                <div class="setting-description">Maximum queue % to qualify as "Juice" (0-100)</div>
             </div>
 
             <div class="setting-item">
                 <label class="setting-label">Minimum Anchor for Juice</label>
-                <input type="number" class="setting-input" id="juiceAnchor" value="50000" min="0" step="1000">
-                <div class="setting-description">Minimum queue anchor size for "Juice"</div>
+                <input type="number" class="setting-input" id="juiceAnchor" value="50000" min="0" max="10000000" step="1000">
+                <div class="setting-description">Minimum queue anchor size for "Juice" (0-10,000,000)</div>
             </div>
         </div>
 
         <div class="settings-section">
             <div class="settings-section-title">Color Ranges</div>
             <div style="font-size: 12px; color: #86868b; line-height: 1.6;">
-                ⚡ <strong>Instants:</strong> ≤1%<br>
-                🔥 <strong>Juice:</strong> ≤10%<br>
-                ⭐ <strong>Excellent:</strong> 10.1-20%<br>
+                <strong>Instants:</strong> &le;1%<br>
+                <strong>Juice:</strong> &le;10%<br>
+                <strong>Excellent:</strong> 10.1-20%<br>
                 <strong>Good:</strong> 20.1-40%<br>
                 <strong>Neutral:</strong> 40.1-60%<br>
-                <strong>Poor:</strong> 60.1-80%<br>
-                <strong>Bad:</strong> 80.1-100%
+                <strong>Poor:</strong> 60.1-100%
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="settings-section-title">Keyboard Shortcuts</div>
+            <div style="font-size: 12px; color: #86868b; line-height: 2;">
+                <strong>Ctrl/Cmd + I</strong> &mdash; Import CSV<br>
+                <strong>Ctrl/Cmd + Z</strong> &mdash; Undo<br>
+                <strong>Ctrl/Cmd + Shift+Z</strong> &mdash; Redo<br>
+                <strong>Ctrl/Cmd + F</strong> &mdash; Search<br>
+                <strong>Ctrl/Cmd + ,</strong> &mdash; Settings<br>
+                <strong>Escape</strong> &mdash; Close panels
             </div>
         </div>
     </div>
@@ -209,13 +253,114 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Test Details</h3>
-                <button class="modal-close" onclick="closeTestModal()">✕</button>
+                <button class="modal-close" onclick="closeTestModal()">&times;</button>
             </div>
             <div class="modal-body" id="modalBody">
                 <!-- Content will be populated by JavaScript -->
             </div>
             <div class="modal-footer">
                 <button class="modal-btn" onclick="closeTestModal()">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Group Manager Modal -->
+    <div class="modal-overlay" id="groupModal">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h3 class="modal-title">Account Groups</h3>
+                <button class="modal-close" onclick="closeGroupModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="group-create-row">
+                    <input type="text" class="group-create-input" id="newGroupName" placeholder="New group name...">
+                    <button class="modal-btn" id="createGroupBtn">Create Group</button>
+                </div>
+                <div class="group-list" id="groupList">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Modal -->
+    <div class="modal-overlay" id="helpModal">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h3 class="modal-title">Help &amp; Guide</h3>
+                <button class="modal-close" onclick="closeHelpModal()">&times;</button>
+            </div>
+            <div class="modal-body help-body">
+                <div class="help-section">
+                    <div class="help-section-title">How to Import Data</div>
+                    <div class="help-text">
+                        1. Click <strong>Import CSV</strong> or press <strong>Ctrl/Cmd + I</strong><br>
+                        2. Select your CSV file from the file picker<br>
+                        3. Your data will be validated and imported automatically<br>
+                        4. You can import multiple files &mdash; data accumulates across imports
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">Required CSV Format</div>
+                    <div class="help-text">
+                        Your CSV must have these columns (case-sensitive):<br><br>
+                        <code class="help-code">Email, Testing Date, Event Name, Queue Number, Queue Anchor</code><br><br>
+                        <strong>Example rows:</strong><br>
+                        <code class="help-code">
+                            Email,Testing Date,Event Name,Queue Number,Queue Anchor<br>
+                            user@email.com,2025-01-15,Taylor Swift Tour,150,5000<br>
+                            user@email.com,2025-02-01,Taylor Swift Tour,80,5000
+                        </code>
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">Column Details</div>
+                    <div class="help-text">
+                        <strong>Email</strong> &mdash; Account email address (must be valid format)<br>
+                        <strong>Testing Date</strong> &mdash; Date in YYYY-MM-DD format (e.g., 2025-01-15)<br>
+                        <strong>Event Name</strong> &mdash; Name of the event (max 200 characters)<br>
+                        <strong>Queue Number</strong> &mdash; Your position in queue (whole number)<br>
+                        <strong>Queue Anchor</strong> &mdash; Total queue size (optional &mdash; auto-calculated if missing)
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">Common Errors</div>
+                    <div class="help-text">
+                        <strong>"Missing required column"</strong> &mdash; Column names are case-sensitive. Make sure they match exactly: Email, Testing Date, Event Name, Queue Number<br><br>
+                        <strong>"Invalid date"</strong> &mdash; Dates must be YYYY-MM-DD format. Not MM/DD/YYYY or DD-MM-YYYY<br><br>
+                        <strong>"Invalid email"</strong> &mdash; Check for typos or extra spaces in email addresses<br><br>
+                        <strong>"Queue anchor less than queue number"</strong> &mdash; The anchor (total queue size) should be larger than your position number<br><br>
+                        <strong>"File too large"</strong> &mdash; Maximum file size is 50MB
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">Understanding Queue %</div>
+                    <div class="help-text">
+                        Queue % = (Queue Number / Queue Anchor) &times; 100<br><br>
+                        <strong>Lower is better:</strong><br>
+                        &bull; <strong>Instants</strong> (&le;1%) &mdash; Almost instant entry<br>
+                        &bull; <strong>Juice</strong> (&le;10%) &mdash; Very strong position<br>
+                        &bull; <strong>Excellent</strong> (10-20%) &mdash; Great position<br>
+                        &bull; <strong>Good</strong> (20-40%) &mdash; Solid position<br>
+                        &bull; <strong>Neutral</strong> (40-60%) &mdash; Average<br>
+                        &bull; <strong>Poor</strong> (60%+) &mdash; Back of the queue
+                    </div>
+                </div>
+
+                <div class="help-section">
+                    <div class="help-section-title">Features</div>
+                    <div class="help-text">
+                        <strong>Compare</strong> &mdash; Select multiple accounts and view side-by-side stats and graphs<br>
+                        <strong>Groups</strong> &mdash; Organize accounts into named groups and filter by group<br>
+                        <strong>Timeline</strong> &mdash; Click "Timeline" on any account to see their full history graph<br>
+                        <strong>Row Size</strong> &mdash; Adjust in Settings to show more or fewer rows on screen<br>
+                        <strong>Undo/Redo</strong> &mdash; Revert imports with Ctrl+Z (up to 20 steps)
+                    </div>
+                </div>
             </div>
         </div>
     </div>

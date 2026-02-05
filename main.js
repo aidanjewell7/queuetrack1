@@ -19,8 +19,9 @@ function createWindow() {
     minWidth: 1200,
     minHeight: 700,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
       devTools: process.env.NODE_ENV === 'development'
     },
     backgroundColor: '#667eea',
@@ -159,8 +160,27 @@ ipcMain.handle('load-data', async () => {
     const dataPath = path.join(userDataPath, 'queuetrack-data.json');
 
     if (fs.existsSync(dataPath)) {
-      const data = fs.readFileSync(dataPath, 'utf-8');
-      return { success: true, data: JSON.parse(data) };
+      const raw = fs.readFileSync(dataPath, 'utf-8');
+      try {
+        const parsed = JSON.parse(raw);
+        return { success: true, data: parsed };
+      } catch (parseError) {
+        console.error('Corrupted data file, attempting backup recovery:', parseError);
+        // Try loading backup
+        const backupPath = path.join(userDataPath, 'queuetrack-data.backup.json');
+        if (fs.existsSync(backupPath)) {
+          try {
+            const backupRaw = fs.readFileSync(backupPath, 'utf-8');
+            const backupData = JSON.parse(backupRaw);
+            // Restore from backup
+            fs.writeFileSync(dataPath, backupRaw, 'utf-8');
+            return { success: true, data: backupData, recovered: true };
+          } catch (backupError) {
+            console.error('Backup also corrupted:', backupError);
+          }
+        }
+        return { success: true, data: { version: 1, tests: [] }, corrupted: true };
+      }
     }
     // Return empty data with schema version
     return { success: true, data: { version: 1, tests: [] } };
@@ -186,11 +206,18 @@ ipcMain.handle('load-settings', async () => {
     const userDataPath = app.getPath('userData');
     const settingsPath = path.join(userDataPath, 'settings.json');
     
+    const defaultSettings = { juicePercent: 10, juiceAnchor: 50000, darkMode: false, rowSize: 'normal', groups: {} };
     if (fs.existsSync(settingsPath)) {
-      const data = fs.readFileSync(settingsPath, 'utf-8');
-      return { success: true, data: JSON.parse(data) };
+      const raw = fs.readFileSync(settingsPath, 'utf-8');
+      try {
+        const parsed = JSON.parse(raw);
+        return { success: true, data: { ...defaultSettings, ...parsed } };
+      } catch (parseError) {
+        console.error('Corrupted settings file, using defaults:', parseError);
+        return { success: true, data: defaultSettings };
+      }
     }
-    return { success: true, data: { juicePercent: 10, juiceAnchor: 50000, darkMode: false } };
+    return { success: true, data: defaultSettings };
   } catch (error) {
     return { success: false, error: error.message };
   }
