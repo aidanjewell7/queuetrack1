@@ -9,6 +9,7 @@ const ROW_INCREMENT = 50;
 
 // Row size configurations
 const ROW_SIZES = {
+    'ultra-compact': { padding: '3px 12px', testPadding: '4px', fontSize: '10px', testFontSize: '9px', label: 'Ultra-Compact' },
     compact: { padding: '6px 16px', testPadding: '6px', fontSize: '11px', testFontSize: '10px', label: 'Compact' },
     normal: { padding: '12px 16px', testPadding: '12px', fontSize: '12px', testFontSize: '11px', label: 'Normal' },
     comfortable: { padding: '18px 16px', testPadding: '16px', fontSize: '13px', testFontSize: '12px', label: 'Comfortable' }
@@ -23,6 +24,7 @@ let redoHistory = [];
 let visibleRowCount = INITIAL_ROW_LIMIT;
 let compareMode = false;
 let selectedForCompare = new Set();
+let isManualUpdateCheck = false;
 
 // HTML escaping utility to prevent XSS
 function escapeHtml(str) {
@@ -127,14 +129,24 @@ function setupAutoUpdater() {
                 break;
 
             case 'up-to-date':
-                // Silently hide - no need to show "up to date" on every check
                 bar.style.display = 'none';
+                if (isManualUpdateCheck) {
+                    isManualUpdateCheck = false;
+                    showToast('You are running the latest version', 'success');
+                    const btn = document.getElementById('checkUpdatesBtn');
+                    if (btn) { btn.disabled = false; btn.textContent = 'Check for Updates'; }
+                }
                 break;
 
             case 'error':
-                // Only show errors briefly, don't leave them up
                 console.log('Update check error:', data.message);
                 bar.style.display = 'none';
+                if (isManualUpdateCheck) {
+                    isManualUpdateCheck = false;
+                    showToast('Could not check for updates', 'error');
+                    const btn = document.getElementById('checkUpdatesBtn');
+                    if (btn) { btn.disabled = false; btn.textContent = 'Check for Updates'; }
+                }
                 break;
         }
     });
@@ -152,14 +164,13 @@ async function checkForUpdatesManual() {
         btn.disabled = true;
         btn.textContent = 'Checking...';
     }
-    const result = await api.checkForUpdates();
-    if (btn) {
-        btn.disabled = false;
-        btn.textContent = 'Check for Updates';
-    }
-    if (result.success && !result.version) {
-        showToast('You are running the latest version', 'success');
-    } else if (!result.success) {
+    isManualUpdateCheck = true;
+    try {
+        await api.checkForUpdates();
+        // The update-status event listener handles showing toast for up-to-date/error
+    } catch (e) {
+        isManualUpdateCheck = false;
+        if (btn) { btn.disabled = false; btn.textContent = 'Check for Updates'; }
         showToast('Could not check for updates', 'error');
     }
 }
@@ -307,17 +318,13 @@ function updateUndoRedoButtons() {
     const redoBtn = document.getElementById('redoBtn');
 
     if (undoBtn) {
-        undoBtn.disabled = undoHistory.length === 0;
-        undoBtn.title = undoHistory.length > 0
-            ? `Undo (${undoHistory.length} available)`
-            : 'Nothing to undo';
+        undoBtn.style.display = undoHistory.length > 0 ? 'inline-flex' : 'none';
+        undoBtn.title = `Undo (${undoHistory.length} available)`;
     }
 
     if (redoBtn) {
-        redoBtn.disabled = redoHistory.length === 0;
-        redoBtn.title = redoHistory.length > 0
-            ? `Redo (${redoHistory.length} available)`
-            : 'Nothing to redo';
+        redoBtn.style.display = redoHistory.length > 0 ? 'inline-flex' : 'none';
+        redoBtn.title = `Redo (${redoHistory.length} available)`;
     }
 }
 
@@ -369,11 +376,59 @@ function isValidEmail(email) {
     return regex.test(email);
 }
 
+// Normalize any common date format to YYYY-MM-DD
+function normalizeDate(dateString) {
+    if (!dateString || typeof dateString !== 'string') return null;
+    const s = dateString.trim();
+
+    let year, month, day;
+
+    // YYYY-MM-DD or YYYY/MM/DD
+    const isoMatch = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+    if (isoMatch) {
+        year = parseInt(isoMatch[1]);
+        month = parseInt(isoMatch[2]);
+        day = parseInt(isoMatch[3]);
+    } else {
+        // MM/DD/YYYY, DD-MM-YYYY, DD.MM.YYYY, M/D/YY, etc.
+        const otherMatch = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+        if (otherMatch) {
+            let a = parseInt(otherMatch[1]);
+            let b = parseInt(otherMatch[2]);
+            let c = parseInt(otherMatch[3]);
+
+            // Handle 2-digit year
+            if (c < 100) c += c < 50 ? 2000 : 1900;
+
+            // Determine if a/b is month/day or day/month
+            if (a > 12 && b <= 12) {
+                // a must be day (DD/MM/YYYY format)
+                day = a; month = b; year = c;
+            } else if (b > 12 && a <= 12) {
+                // b must be day (MM/DD/YYYY format)
+                month = a; day = b; year = c;
+            } else {
+                // Both could be month or day - default to MM/DD/YYYY (US format)
+                month = a; day = b; year = c;
+            }
+        } else {
+            return null;
+        }
+    }
+
+    // Validate ranges
+    if (month < 1 || month > 12 || day < 1 || day > 31 || year < 1900 || year > 2100) return null;
+
+    // Validate the actual date
+    const date = new Date(year, month - 1, day);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+
+    // Return normalized YYYY-MM-DD
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 function isValidDate(dateString) {
-    const regex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!regex.test(dateString)) return false;
-    const date = new Date(dateString);
-    return date instanceof Date && !isNaN(date);
+    return normalizeDate(dateString) !== null;
 }
 
 function validateTestData(test, rowIndex) {
@@ -384,7 +439,7 @@ function validateTestData(test, rowIndex) {
     }
 
     if (!isValidDate(test.testingDate)) {
-        errors.push(`Row ${rowIndex}: Invalid date "${test.testingDate}" (must be YYYY-MM-DD)`);
+        errors.push(`Row ${rowIndex}: Invalid date "${test.testingDate}" (use YYYY-MM-DD, MM/DD/YYYY, or DD-MM-YYYY)`);
     }
 
     if (test.eventName.length === 0) {
@@ -447,9 +502,12 @@ function parseCSV(csvText) {
             continue;
         }
 
+        const rawDate = row['Testing Date'].trim();
+        const normalizedDate = normalizeDate(rawDate) || rawDate;
+
         const test = {
             email: row.Email.trim(),
-            testingDate: row['Testing Date'].trim(),
+            testingDate: normalizedDate,
             eventName: row['Event Name'].trim(),
             queueNumber: parseInt(row['Queue Number']),
             queueAnchor: row['Queue Anchor'] ? parseInt(row['Queue Anchor']) : null
@@ -1353,8 +1411,12 @@ function scrollToBestPosition() {
 
     rows.forEach(row => {
         const emailCell = row.querySelector('.email-cell');
-        if (emailCell && emailCell.textContent.includes(window.bestEmail)) {
-            targetRow = row;
+        if (emailCell) {
+            // Match against the email span text, not the full cell (which includes badge text)
+            const emailSpan = emailCell.querySelector('span');
+            if (emailSpan && emailSpan.textContent.trim() === window.bestEmail) {
+                targetRow = row;
+            }
         }
     });
 

@@ -31,20 +31,22 @@
                     </div>
                 </div>
                 <div class="right-section">
-                    <button class="icon-btn" id="helpBtn" title="Help &amp; Guide">?</button>
-                    <button class="icon-btn" id="undoBtn" title="Undo" disabled>&#x21B6;</button>
-                    <button class="icon-btn" id="redoBtn" title="Redo" disabled>&#x21B7;</button>
+                    <button class="icon-btn" id="undoBtn" title="Undo" style="display: none;">&#x21B6;</button>
+                    <button class="icon-btn" id="redoBtn" title="Redo" style="display: none;">&#x21B7;</button>
+                    <div class="top-bar-divider"></div>
                     <div class="mode-toggle">
                         <button class="mode-btn active" id="lightBtn">&#x2600;&#xFE0F;</button>
                         <button class="mode-btn" id="darkBtn">&#x1F319;</button>
                     </div>
                     <button class="settings-btn">&#x2699;&#xFE0F;</button>
+                    <div class="top-bar-divider"></div>
                     <button class="action-btn" id="groupBtn" title="Manage Groups">Groups</button>
                     <button class="action-btn compare" id="compareBtn" title="Compare Accounts">Compare</button>
                     <div class="compare-actions" id="compareActions" style="display: none;">
                         <button class="action-btn compare" id="runCompareBtn" disabled>Compare (0)</button>
                         <button class="action-btn cancel" id="cancelCompareBtn">Cancel</button>
                     </div>
+                    <button class="help-btn" id="helpBtn">Help</button>
                     <button class="import-btn" id="importBtn">Import CSV</button>
                 </div>
             </div>
@@ -211,6 +213,7 @@
             <div class="setting-item">
                 <label class="setting-label">Row Size</label>
                 <select class="setting-input" id="rowSizeSelect">
+                    <option value="ultra-compact">Ultra-Compact - Maximum density</option>
                     <option value="compact">Compact - Show more rows</option>
                     <option value="normal" selected>Normal</option>
                     <option value="comfortable">Comfortable - Larger rows</option>
@@ -339,7 +342,7 @@
                     <div class="help-section-title">Column Details</div>
                     <div class="help-text">
                         <strong>Email</strong> &mdash; Account email address (must be valid format)<br>
-                        <strong>Testing Date</strong> &mdash; Date in YYYY-MM-DD format (e.g., 2025-01-15)<br>
+                        <strong>Testing Date</strong> &mdash; Date in most common formats (YYYY-MM-DD, MM/DD/YYYY, DD-MM-YYYY, etc.)<br>
                         <strong>Event Name</strong> &mdash; Name of the event (max 200 characters)<br>
                         <strong>Queue Number</strong> &mdash; Your position in queue (whole number)<br>
                         <strong>Queue Anchor</strong> &mdash; Total queue size (optional &mdash; auto-calculated if missing)
@@ -350,7 +353,7 @@
                     <div class="help-section-title">Common Errors</div>
                     <div class="help-text">
                         <strong>"Missing required column"</strong> &mdash; Column names are case-sensitive. Make sure they match exactly: Email, Testing Date, Event Name, Queue Number<br><br>
-                        <strong>"Invalid date"</strong> &mdash; Dates must be YYYY-MM-DD format. Not MM/DD/YYYY or DD-MM-YYYY<br><br>
+                        <strong>"Invalid date"</strong> &mdash; Check date formatting. Supported: YYYY-MM-DD, MM/DD/YYYY, DD-MM-YYYY, DD.MM.YYYY, M/D/YY<br><br>
                         <strong>"Invalid email"</strong> &mdash; Check for typos or extra spaces in email addresses<br><br>
                         <strong>"Queue anchor less than queue number"</strong> &mdash; The anchor (total queue size) should be larger than your position number<br><br>
                         <strong>"File too large"</strong> &mdash; Maximum file size is 50MB

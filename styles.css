@@ -256,6 +256,47 @@ body.dark .settings-btn {
     transform: rotate(45deg);
 }
 
+.help-btn {
+    padding: 6px 14px;
+    background: rgba(0, 122, 255, 0.08);
+    border: 1px solid rgba(0, 122, 255, 0.2);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: #007AFF;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.help-btn:hover {
+    background: rgba(0, 122, 255, 0.15);
+    transform: translateY(-1px);
+}
+
+body.dark .help-btn {
+    background: rgba(10, 132, 255, 0.12);
+    border-color: rgba(10, 132, 255, 0.25);
+    color: #0A84FF;
+}
+
+body.dark .help-btn:hover {
+    background: rgba(10, 132, 255, 0.2);
+}
+
+.top-bar-divider {
+    width: 1px;
+    height: 20px;
+    background: rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+}
+
+body.dark .top-bar-divider {
+    background: rgba(255, 255, 255, 0.1);
+}
+
 .import-btn {
     padding: 8px 20px;
     background: #007AFF;
@@ -1422,6 +1463,40 @@ body[data-row-size="comfortable"] .queue-numbers {
 
 body[data-row-size="comfortable"] .queue-percent {
     font-size: var(--row-font-size);
+}
+
+body[data-row-size="ultra-compact"] td {
+    padding: var(--row-padding);
+    font-size: var(--row-font-size);
+}
+
+body[data-row-size="ultra-compact"] .test-cell {
+    padding: var(--test-padding);
+    min-width: 80px;
+    border-radius: 6px;
+}
+
+body[data-row-size="ultra-compact"] .queue-numbers {
+    font-size: var(--test-font-size);
+    margin-bottom: 1px;
+}
+
+body[data-row-size="ultra-compact"] .queue-percent {
+    font-size: var(--row-font-size);
+}
+
+body[data-row-size="ultra-compact"] .email-cell {
+    font-size: 11px;
+}
+
+body[data-row-size="ultra-compact"] .badge {
+    padding: 1px 5px;
+    font-size: 9px;
+}
+
+body[data-row-size="ultra-compact"] .view-all-btn {
+    padding: 1px 6px;
+    font-size: 8px;
 }
 
 /* ============================
