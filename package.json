@@ -1,6 +1,6 @@
 {
   "name": "queuetrack",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Ticketmaster Queue Position Tracker",
   "main": "main.js",
   "scripts": {

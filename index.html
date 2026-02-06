@@ -19,12 +19,35 @@
     </div>
 
     <div class="container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">QT</div>
+            </div>
+            <div class="sidebar-nav">
+                <button class="sidebar-nav-item active" id="navHome" title="Home">
+                    <span class="sidebar-icon">&#x1F3E0;</span>
+                    <span class="sidebar-label">Home</span>
+                </button>
+                <button class="sidebar-nav-item" id="navSettings" title="Settings">
+                    <span class="sidebar-icon">&#x2699;&#xFE0F;</span>
+                    <span class="sidebar-label">Settings</span>
+                </button>
+            </div>
+            <div class="sidebar-footer">
+                <div class="mode-toggle-sidebar">
+                    <button class="mode-btn active" id="lightBtn" title="Light Mode">&#x2600;&#xFE0F;</button>
+                    <button class="mode-btn" id="darkBtn" title="Dark Mode">&#x1F319;</button>
+                </div>
+            </div>
+        </nav>
+
         <div class="mockup">
             <!-- Top Bar -->
             <div class="top-bar">
                 <div class="left-section">
-                    <button class="back-btn" id="backBtn" style="display: none;">&#x1F3E0;</button>
-                    <div class="app-title">QueueTrack</div>
+                    <button class="back-btn" id="backBtn" style="display: none;">&#x2190;</button>
+                    <div class="app-title" id="pageTitle">Home</div>
                     <div class="search-wrapper" id="searchWrapper">
                         <span class="search-icon">&#x1F50D;</span>
                         <input type="text" class="search-input" id="searchInput" placeholder="Search emails...">
@@ -33,21 +56,29 @@
                 <div class="right-section">
                     <button class="icon-btn" id="undoBtn" title="Undo" style="display: none;">&#x21B6;</button>
                     <button class="icon-btn" id="redoBtn" title="Redo" style="display: none;">&#x21B7;</button>
-                    <div class="top-bar-divider"></div>
-                    <div class="mode-toggle">
-                        <button class="mode-btn active" id="lightBtn">&#x2600;&#xFE0F;</button>
-                        <button class="mode-btn" id="darkBtn">&#x1F319;</button>
-                    </div>
-                    <button class="settings-btn">&#x2699;&#xFE0F;</button>
-                    <div class="top-bar-divider"></div>
-                    <button class="action-btn" id="groupBtn" title="Manage Groups">Groups</button>
-                    <button class="action-btn compare" id="compareBtn" title="Compare Accounts">Compare</button>
+                    <button class="help-btn" id="helpBtn">Help</button>
+                    <button class="import-btn" id="importBtn">Import CSV</button>
+                </div>
+            </div>
+
+            <!-- Tools Bar (above data table) -->
+            <div class="tools-bar" id="toolsBar">
+                <div class="tools-left">
+                    <button class="tool-btn" id="groupBtn" title="Manage Groups">
+                        <span class="tool-icon">&#x1F465;</span>
+                        <span class="tool-label">Groups</span>
+                    </button>
+                    <button class="tool-btn" id="compareBtn" title="Compare Accounts">
+                        <span class="tool-icon">&#x1F4CA;</span>
+                        <span class="tool-label">Compare</span>
+                    </button>
                     <div class="compare-actions" id="compareActions" style="display: none;">
                         <button class="action-btn compare" id="runCompareBtn" disabled>Compare (0)</button>
                         <button class="action-btn cancel" id="cancelCompareBtn">Cancel</button>
                     </div>
-                    <button class="help-btn" id="helpBtn">Help</button>
-                    <button class="import-btn" id="importBtn">Import CSV</button>
+                </div>
+                <div class="tools-right">
+                    <span class="tools-stats" id="toolsStats">0 accounts</span>
                 </div>
             </div>
 
@@ -197,85 +228,105 @@
                     <!-- Populated by JavaScript -->
                 </div>
             </div>
-        </div>
-    </div>
 
-    <!-- Settings Panel -->
-    <div class="settings-panel" id="settingsPanel">
-        <div class="settings-header">
-            <div class="settings-title">Settings</div>
-            <button class="close-settings">&times;</button>
-        </div>
+            <!-- Settings Page (Full Page) -->
+            <div class="settings-page" id="settingsPage" style="display: none;">
+                <div class="settings-page-content">
+                    <div class="settings-grid">
+                        <div class="settings-card">
+                            <div class="settings-card-title">Display</div>
+                            <div class="setting-item">
+                                <label class="setting-label">Row Size</label>
+                                <select class="setting-input" id="rowSizeSelect">
+                                    <option value="ultra-compact">Ultra-Compact</option>
+                                    <option value="compact">Compact</option>
+                                    <option value="normal" selected>Normal</option>
+                                    <option value="comfortable">Comfortable</option>
+                                </select>
+                                <div class="setting-description">Adjust row height to see more or fewer accounts</div>
+                            </div>
+                        </div>
 
-        <div class="settings-section">
-            <div class="settings-section-title">Display</div>
+                        <div class="settings-card">
+                            <div class="settings-card-title">Juice Threshold</div>
+                            <div class="setting-item">
+                                <label class="setting-label">Max Queue % for Juice</label>
+                                <input type="number" class="setting-input" id="juicePercent" value="10" min="0" max="100">
+                            </div>
+                            <div class="setting-item">
+                                <label class="setting-label">Min Anchor for Juice</label>
+                                <input type="number" class="setting-input" id="juiceAnchor" value="50000" min="0" max="10000000" step="1000">
+                            </div>
+                        </div>
 
-            <div class="setting-item">
-                <label class="setting-label">Row Size</label>
-                <select class="setting-input" id="rowSizeSelect">
-                    <option value="ultra-compact">Ultra-Compact - Maximum density</option>
-                    <option value="compact">Compact - Show more rows</option>
-                    <option value="normal" selected>Normal</option>
-                    <option value="comfortable">Comfortable - Larger rows</option>
-                </select>
-                <div class="setting-description">Adjust row height to see more or fewer accounts at once</div>
+                        <div class="settings-card settings-card-wide">
+                            <div class="settings-card-title">Color Ranges</div>
+                            <div class="color-range-grid">
+                                <div class="color-range-item">
+                                    <span class="color-swatch instants"></span>
+                                    <label>Instants (%)</label>
+                                    <input type="number" class="color-range-input" id="colorInstants" value="1" min="0" max="100" step="0.5">
+                                </div>
+                                <div class="color-range-item">
+                                    <span class="color-swatch juice"></span>
+                                    <label>Juice (%)</label>
+                                    <input type="number" class="color-range-input" id="colorJuice" value="10" min="0" max="100" step="0.5">
+                                </div>
+                                <div class="color-range-item">
+                                    <span class="color-swatch excellent"></span>
+                                    <label>Excellent (%)</label>
+                                    <input type="number" class="color-range-input" id="colorExcellent" value="20" min="0" max="100" step="0.5">
+                                </div>
+                                <div class="color-range-item">
+                                    <span class="color-swatch good"></span>
+                                    <label>Good (%)</label>
+                                    <input type="number" class="color-range-input" id="colorGood" value="40" min="0" max="100" step="0.5">
+                                </div>
+                                <div class="color-range-item">
+                                    <span class="color-swatch neutral"></span>
+                                    <label>Neutral (%)</label>
+                                    <input type="number" class="color-range-input" id="colorNeutral" value="60" min="0" max="100" step="0.5">
+                                </div>
+                                <div class="color-range-item">
+                                    <span class="color-swatch poor"></span>
+                                    <label>Poor</label>
+                                    <span class="color-range-note">Above neutral</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-card">
+                            <div class="settings-card-title">Data Management</div>
+                            <div style="font-size: 13px; color: #86868b; margin-bottom: 16px;">
+                                <span id="dataStats">0 accounts, 0 tests</span>
+                            </div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                <button class="action-btn" onclick="showImportHistory()">View Imports</button>
+                                <button class="action-btn danger-btn" onclick="clearAllData()">Clear All Data</button>
+                            </div>
+                        </div>
+
+                        <div class="settings-card">
+                            <div class="settings-card-title">About</div>
+                            <div style="font-size: 14px; color: #1d1d1f; margin-bottom: 12px;">
+                                QueueTrack <span id="appVersion" style="color: #86868b;">v1.0.0</span>
+                            </div>
+                            <button class="action-btn" id="checkUpdatesBtn" onclick="checkForUpdatesManual()">Check for Updates</button>
+                        </div>
+
+                        <div class="settings-card">
+                            <div class="settings-card-title">Keyboard Shortcuts</div>
+                            <div class="shortcuts-list">
+                                <div class="shortcut-row"><kbd>Ctrl/Cmd + I</kbd> <span>Import CSV</span></div>
+                                <div class="shortcut-row"><kbd>Ctrl/Cmd + Z</kbd> <span>Undo</span></div>
+                                <div class="shortcut-row"><kbd>Ctrl/Cmd + Shift + Z</kbd> <span>Redo</span></div>
+                                <div class="shortcut-row"><kbd>Ctrl/Cmd + F</kbd> <span>Search</span></div>
+                                <div class="shortcut-row"><kbd>Escape</kbd> <span>Close panels</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </div>
-
-        <div class="settings-section">
-            <div class="settings-section-title">Preferences</div>
-
-            <div class="setting-item">
-                <label class="setting-label">Juice Threshold (%)</label>
-                <input type="number" class="setting-input" id="juicePercent" value="10" min="0" max="100">
-                <div class="setting-description">Maximum queue % to qualify as "Juice" (0-100)</div>
-            </div>
-
-            <div class="setting-item">
-                <label class="setting-label">Minimum Anchor for Juice</label>
-                <input type="number" class="setting-input" id="juiceAnchor" value="50000" min="0" max="10000000" step="1000">
-                <div class="setting-description">Minimum queue anchor size for "Juice" (0-10,000,000)</div>
-            </div>
-        </div>
-
-        <div class="settings-section">
-            <div class="settings-section-title">Color Ranges</div>
-            <div style="font-size: 12px; color: #86868b; line-height: 1.6;">
-                <strong>Instants:</strong> &le;1%<br>
-                <strong>Juice:</strong> &le;10%<br>
-                <strong>Excellent:</strong> 10.1-20%<br>
-                <strong>Good:</strong> 20.1-40%<br>
-                <strong>Neutral:</strong> 40.1-60%<br>
-                <strong>Poor:</strong> 60.1-100%
-            </div>
-        </div>
-
-        <div class="settings-section">
-            <div class="settings-section-title">Keyboard Shortcuts</div>
-            <div style="font-size: 12px; color: #86868b; line-height: 2;">
-                <strong>Ctrl/Cmd + I</strong> &mdash; Import CSV<br>
-                <strong>Ctrl/Cmd + Z</strong> &mdash; Undo<br>
-                <strong>Ctrl/Cmd + Shift+Z</strong> &mdash; Redo<br>
-                <strong>Ctrl/Cmd + F</strong> &mdash; Search<br>
-                <strong>Ctrl/Cmd + ,</strong> &mdash; Settings<br>
-                <strong>Escape</strong> &mdash; Close panels
-            </div>
-        </div>
-
-        <div class="settings-section">
-            <div class="settings-section-title">Data Management</div>
-            <div style="font-size: 12px; color: #86868b; margin-bottom: 12px;">
-                <span id="dataStats">0 accounts, 0 tests</span>
-            </div>
-            <button class="action-btn danger-btn" id="clearDataBtn" onclick="clearAllData()">Clear All Data</button>
-        </div>
-
-        <div class="settings-section">
-            <div class="settings-section-title">About</div>
-            <div style="font-size: 13px; color: #86868b; margin-bottom: 12px;">
-                QueueTrack <span id="appVersion">v1.0.0</span>
-            </div>
-            <button class="action-btn" id="checkUpdatesBtn" onclick="checkForUpdatesManual()">Check for Updates</button>
         </div>
     </div>
 
@@ -311,6 +362,46 @@
                     <!-- Populated by JavaScript -->
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Import History Modal -->
+    <div class="modal-overlay" id="importHistoryModal">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h3 class="modal-title">Import History</h3>
+                <button class="modal-close" onclick="closeImportHistoryModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="import-history-list" id="importHistoryList">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="confirmTitle">Confirm</h3>
+                <button class="modal-close" onclick="closeConfirmModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="confirmMessage" style="font-size: 14px; color: #48484a; line-height: 1.6;"></p>
+            </div>
+            <div class="modal-footer" style="gap: 8px;">
+                <button class="action-btn" onclick="closeConfirmModal()">Cancel</button>
+                <button class="action-btn danger-btn" id="confirmActionBtn">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-overlay-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-overlay-text" id="loadingOverlayText">Loading...</div>
         </div>
     </div>
 

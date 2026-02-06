@@ -17,7 +17,22 @@ const ROW_SIZES = {
 
 // State
 let allTests = [];
-let settings = { juicePercent: 10, juiceAnchor: 50000, darkMode: false, rowSize: 'normal', groups: {} };
+let importHistory = []; // Track CSV imports { id, filename, date, testCount }
+let settings = {
+    juicePercent: 10,
+    juiceAnchor: 50000,
+    darkMode: false,
+    rowSize: 'normal',
+    groups: {},
+    colorRanges: {
+        instants: 1,
+        juice: 10,
+        excellent: 20,
+        good: 40,
+        neutral: 60
+        // poor is anything above neutral
+    }
+};
 let currentFilter = 'all';
 let currentSort = { field: 'change', direction: 'desc' };
 let undoHistory = [];
@@ -26,6 +41,7 @@ let visibleRowCount = INITIAL_ROW_LIMIT;
 let compareMode = false;
 let selectedForCompare = new Set();
 let isManualUpdateCheck = false;
+let currentPage = 'home'; // 'home' or 'settings'
 
 // HTML escaping utility to prevent XSS
 function escapeHtml(str) {
@@ -34,6 +50,49 @@ function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+}
+
+// ============================
+// PAGE NAVIGATION
+// ============================
+function navigateTo(page) {
+    currentPage = page;
+
+    // Update sidebar nav items
+    document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+        item.classList.remove('active');
+    });
+
+    if (page === 'home') {
+        document.getElementById('navHome').classList.add('active');
+        document.getElementById('mainContent').style.display = 'flex';
+        document.getElementById('settingsPage').style.display = 'none';
+        document.getElementById('toolsBar').style.display = 'flex';
+        document.getElementById('searchWrapper').style.display = 'flex';
+        document.getElementById('importBtn').style.display = 'block';
+        document.getElementById('pageTitle').textContent = 'Home';
+    } else if (page === 'settings') {
+        document.getElementById('navSettings').classList.add('active');
+        document.getElementById('mainContent').style.display = 'none';
+        document.getElementById('settingsPage').style.display = 'block';
+        document.getElementById('toolsBar').style.display = 'none';
+        document.getElementById('searchWrapper').style.display = 'none';
+        document.getElementById('importBtn').style.display = 'none';
+        document.getElementById('pageTitle').textContent = 'Settings';
+
+        // Hide timeline/comparison if visible
+        document.getElementById('timelinePage').style.display = 'none';
+        document.getElementById('comparisonPage').style.display = 'none';
+        document.getElementById('backBtn').style.display = 'none';
+    }
+}
+
+function updateToolsStats() {
+    const emails = new Set(allTests.map(t => t.email));
+    const toolsStats = document.getElementById('toolsStats');
+    if (toolsStats) {
+        toolsStats.textContent = `${emails.size} account${emails.size !== 1 ? 's' : ''}`;
+    }
 }
 
 // Initialize
@@ -213,12 +272,25 @@ async function loadSettings() {
     const result = await api.loadSettings();
     if (result.success && result.data) {
         settings = { ...settings, ...result.data };
+        // Ensure colorRanges has all fields
+        settings.colorRanges = {
+            instants: 1, juice: 10, excellent: 20, good: 40, neutral: 60,
+            ...settings.colorRanges
+        };
+
         document.getElementById('juicePercent').value = settings.juicePercent;
         document.getElementById('juiceAnchor').value = settings.juiceAnchor;
 
         // Row size
         const rowSizeSelect = document.getElementById('rowSizeSelect');
         if (rowSizeSelect) rowSizeSelect.value = settings.rowSize || 'normal';
+
+        // Color ranges
+        const colorInputs = ['instants', 'juice', 'excellent', 'good', 'neutral'];
+        colorInputs.forEach(key => {
+            const input = document.getElementById(`color${key.charAt(0).toUpperCase() + key.slice(1)}`);
+            if (input) input.value = settings.colorRanges[key];
+        });
 
         if (settings.darkMode) {
             document.body.classList.add('dark');
@@ -248,8 +320,13 @@ function migrateData(data) {
         console.log('Migrating legacy data to schema v1');
         return {
             version: 1,
-            tests: Array.isArray(data) ? data : []
+            tests: Array.isArray(data) ? data : [],
+            imports: []
         };
+    }
+    // Ensure imports array exists
+    if (!data.imports) {
+        data.imports = [];
     }
     return data;
 }
@@ -273,6 +350,7 @@ async function loadData() {
         }
 
         allTests = migratedData.tests;
+        importHistory = migratedData.imports || [];
         recalculateAll();
     }
 }
@@ -280,24 +358,61 @@ async function loadData() {
 async function saveData() {
     const dataToSave = {
         version: CURRENT_SCHEMA_VERSION,
-        tests: allTests
+        tests: allTests,
+        imports: importHistory
     };
     await api.saveData(dataToSave);
 }
 
-async function clearAllData() {
-    if (!confirm('Are you sure you want to delete ALL data? This cannot be undone.')) {
-        return;
-    }
-    if (!confirm('This will permanently delete all imported tests. Are you absolutely sure?')) {
-        return;
-    }
+// Confirmation Modal Helper
+function showConfirmModal(title, message, actionText, onConfirm) {
+    const modal = document.getElementById('confirmModal');
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmMessage').textContent = message;
+    const actionBtn = document.getElementById('confirmActionBtn');
+    actionBtn.textContent = actionText || 'Confirm';
 
-    saveToHistory();
-    allTests = [];
-    await saveData();
-    renderTable();
-    showToast('All data has been cleared', 'success');
+    // Clone to remove old event listeners
+    const newBtn = actionBtn.cloneNode(true);
+    actionBtn.parentNode.replaceChild(newBtn, actionBtn);
+
+    newBtn.onclick = () => {
+        closeConfirmModal();
+        if (onConfirm) onConfirm();
+    };
+
+    modal.classList.add('visible');
+}
+
+function closeConfirmModal() {
+    document.getElementById('confirmModal').classList.remove('visible');
+}
+
+// Loading Overlay Helper
+function showLoadingOverlay(message) {
+    const overlay = document.getElementById('loadingOverlay');
+    const text = document.getElementById('loadingOverlayText');
+    text.textContent = message || 'Loading...';
+    overlay.classList.add('visible');
+}
+
+function hideLoadingOverlay() {
+    document.getElementById('loadingOverlay').classList.remove('visible');
+}
+
+async function clearAllData() {
+    showConfirmModal(
+        'Delete All Data',
+        'Are you sure you want to delete ALL data? This will permanently remove all imported tests and cannot be undone.',
+        'Delete Everything',
+        async () => {
+            saveToHistory();
+            allTests = [];
+            await saveData();
+            renderTable();
+            showToast('All data has been cleared', 'success');
+        }
+    );
 }
 
 // Undo/Redo Functions
@@ -375,7 +490,24 @@ async function importCSV() {
 
         saveToHistory();
 
+        // Generate import ID and tag tests
+        const importId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+        const filename = filePath.split(/[/\\]/).pop(); // Get filename from path
+
+        tests.forEach(t => {
+            t.importId = importId;
+        });
+
         const warnings = processNewTests(tests);
+
+        // Track this import
+        importHistory.push({
+            id: importId,
+            filename: filename,
+            date: new Date().toISOString(),
+            testCount: tests.length
+        });
+
         recalculateAll();
         await saveData();
         renderTable();
@@ -393,6 +525,88 @@ async function importCSV() {
         showToast(`Import failed: ${error.message}`, 'error');
         console.error('Import error:', error);
     }
+}
+
+// Import History Management
+function showImportHistory() {
+    const modal = document.getElementById('importHistoryModal');
+    renderImportHistory();
+    modal.classList.add('visible');
+}
+
+function closeImportHistoryModal() {
+    document.getElementById('importHistoryModal').classList.remove('visible');
+}
+
+function renderImportHistory() {
+    const container = document.getElementById('importHistoryList');
+    container.innerHTML = '';
+
+    if (importHistory.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'import-history-empty';
+        empty.textContent = 'No imports yet. Import a CSV to get started!';
+        container.appendChild(empty);
+        return;
+    }
+
+    // Sort by date descending (newest first)
+    const sorted = [...importHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    sorted.forEach(imp => {
+        const row = document.createElement('div');
+        row.className = 'import-history-row';
+
+        const info = document.createElement('div');
+        info.className = 'import-history-info';
+
+        const filename = document.createElement('div');
+        filename.className = 'import-history-filename';
+        filename.textContent = imp.filename;
+        info.appendChild(filename);
+
+        const meta = document.createElement('div');
+        meta.className = 'import-history-meta';
+        const date = new Date(imp.date);
+        meta.textContent = `${date.toLocaleDateString()} at ${date.toLocaleTimeString()} • ${imp.testCount} tests`;
+        info.appendChild(meta);
+
+        row.appendChild(info);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'import-remove-btn';
+        removeBtn.textContent = 'Remove';
+        removeBtn.onclick = () => removeImport(imp.id);
+        row.appendChild(removeBtn);
+
+        container.appendChild(row);
+    });
+}
+
+function removeImport(importId) {
+    const imp = importHistory.find(i => i.id === importId);
+    if (!imp) return;
+
+    showConfirmModal(
+        'Remove Import',
+        `Are you sure you want to remove "${imp.filename}"? This will delete ${imp.testCount} tests from this import.`,
+        'Remove',
+        async () => {
+            saveToHistory();
+
+            // Remove tests with this import ID
+            allTests = allTests.filter(t => t.importId !== importId);
+
+            // Remove from import history
+            importHistory = importHistory.filter(i => i.id !== importId);
+
+            recalculateAll();
+            await saveData();
+            renderTable();
+            renderImportHistory();
+            showToast('Import removed successfully', 'success');
+        }
+    );
 }
 
 // Validation helpers
@@ -1187,22 +1401,14 @@ function runComparison() {
         return;
     }
 
-    // Show loading feedback
-    const runBtn = document.getElementById('runCompareBtn');
-    if (runBtn) {
-        runBtn.disabled = true;
-        runBtn.textContent = 'Loading...';
-    }
-    showToast('Generating comparison...', 'success');
+    // Show loading overlay
+    showLoadingOverlay('Generating comparison...');
 
     // Use setTimeout to allow UI to update before heavy computation
     setTimeout(() => {
         showComparisonView(Array.from(selectedForCompare));
-        if (runBtn) {
-            runBtn.disabled = false;
-            runBtn.textContent = `Compare (${selectedForCompare.size})`;
-        }
-    }, 50);
+        hideLoadingOverlay();
+    }, 100);
 }
 
 function showComparisonView(emails) {
@@ -1548,11 +1754,12 @@ function formatDateLong(d) {
 }
 
 function getColorClass(p) {
-    if (p <= 1) return 'instants';
-    if (p <= 10) return 'juice';
-    if (p <= 20) return 'excellent';
-    if (p <= 40) return 'good';
-    if (p <= 60) return 'neutral';
+    const ranges = settings.colorRanges || { instants: 1, juice: 10, excellent: 20, good: 40, neutral: 60 };
+    if (p <= ranges.instants) return 'instants';
+    if (p <= ranges.juice) return 'juice';
+    if (p <= ranges.excellent) return 'excellent';
+    if (p <= ranges.good) return 'good';
+    if (p <= ranges.neutral) return 'neutral';
     return 'poor';
 }
 
@@ -1576,6 +1783,9 @@ function updateStats(tests) {
     if (dataStats) {
         dataStats.textContent = `${emails.size} account${emails.size !== 1 ? 's' : ''}, ${tests.length} test${tests.length !== 1 ? 's' : ''}`;
     }
+
+    // Update tools bar stats
+    updateToolsStats();
 
     if (tests.length > 0) {
         const bestPercent = Math.min(...tests.map(t => t.queuePercent));
@@ -1749,8 +1959,15 @@ function setupEventListeners() {
         saveSettings();
     };
 
-    document.querySelector('.settings-btn').onclick = () => document.getElementById('settingsPanel').classList.toggle('open');
-    document.querySelector('.close-settings').onclick = () => document.getElementById('settingsPanel').classList.remove('open');
+    // Sidebar Navigation
+    const navHome = document.getElementById('navHome');
+    if (navHome) {
+        navHome.onclick = () => navigateTo('home');
+    }
+    const navSettings = document.getElementById('navSettings');
+    if (navSettings) {
+        navSettings.onclick = () => navigateTo('settings');
+    }
 
     document.getElementById('importBtn').onclick = importCSV;
     document.getElementById('backBtn').onclick = () => {
@@ -1776,6 +1993,12 @@ function setupEventListeners() {
     };
     document.getElementById('helpModal').onclick = (e) => {
         if (e.target.id === 'helpModal') closeHelpModal();
+    };
+    document.getElementById('confirmModal').onclick = (e) => {
+        if (e.target.id === 'confirmModal') closeConfirmModal();
+    };
+    document.getElementById('importHistoryModal').onclick = (e) => {
+        if (e.target.id === 'importHistoryModal') closeImportHistoryModal();
     };
 
     // Modal close button handlers (ensure they work)
@@ -1883,6 +2106,25 @@ function setupEventListeners() {
         };
     }
 
+    // Color range inputs
+    const colorRangeKeys = ['instants', 'juice', 'excellent', 'good', 'neutral'];
+    colorRangeKeys.forEach(key => {
+        const inputId = `color${key.charAt(0).toUpperCase() + key.slice(1)}`;
+        const input = document.getElementById(inputId);
+        if (input) {
+            input.onchange = async (e) => {
+                let val = parseFloat(e.target.value);
+                if (isNaN(val) || val < 0) val = 0;
+                if (val > 100) val = 100;
+                e.target.value = val;
+                settings.colorRanges[key] = val;
+                await saveSettings();
+                renderTable();
+                showToast('Color range updated', 'success');
+            };
+        }
+    });
+
     // Keyboard Shortcuts
     document.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
@@ -1899,15 +2141,19 @@ function setupEventListeners() {
         }
         if ((e.ctrlKey || e.metaKey) && e.key === ',') {
             e.preventDefault();
-            document.getElementById('settingsPanel').classList.toggle('open');
+            navigateTo(currentPage === 'settings' ? 'home' : 'settings');
         }
         if (e.key === 'Escape') {
-            if (document.getElementById('helpModal').classList.contains('visible')) {
+            if (document.getElementById('confirmModal').classList.contains('visible')) {
+                closeConfirmModal();
+            } else if (document.getElementById('importHistoryModal').classList.contains('visible')) {
+                closeImportHistoryModal();
+            } else if (document.getElementById('helpModal').classList.contains('visible')) {
                 closeHelpModal();
             } else if (document.getElementById('groupModal').classList.contains('visible')) {
                 closeGroupModal();
-            } else if (document.getElementById('settingsPanel').classList.contains('open')) {
-                document.getElementById('settingsPanel').classList.remove('open');
+            } else if (currentPage === 'settings') {
+                navigateTo('home');
             } else if (document.getElementById('comparisonPage').style.display === 'block') {
                 hideComparisonView();
             } else if (document.getElementById('timelinePage').style.display === 'block') {
