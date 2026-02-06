@@ -17,14 +17,31 @@ const ROW_SIZES = {
 
 // State
 let allTests = [];
-let settings = { juicePercent: 10, juiceAnchor: 50000, darkMode: false, rowSize: 'normal', groups: {} };
+let importHistory = []; // Track CSV imports { id, filename, date, testCount }
+let settings = {
+    juicePercent: 10,
+    juiceAnchor: 50000,
+    darkMode: false,
+    rowSize: 'normal',
+    groups: {},
+    colorRanges: {
+        instants: 1,
+        juice: 10,
+        excellent: 20,
+        good: 40,
+        neutral: 60
+        // poor is anything above neutral
+    }
+};
 let currentFilter = 'all';
+let currentSort = { field: 'change', direction: 'desc' };
 let undoHistory = [];
 let redoHistory = [];
 let visibleRowCount = INITIAL_ROW_LIMIT;
 let compareMode = false;
 let selectedForCompare = new Set();
 let isManualUpdateCheck = false;
+let currentPage = 'home'; // 'home' or 'settings'
 
 // HTML escaping utility to prevent XSS
 function escapeHtml(str) {
@@ -33,6 +50,49 @@ function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+}
+
+// ============================
+// PAGE NAVIGATION
+// ============================
+function navigateTo(page) {
+    currentPage = page;
+
+    // Update sidebar nav items
+    document.querySelectorAll('.sidebar-nav-item').forEach(item => {
+        item.classList.remove('active');
+    });
+
+    if (page === 'home') {
+        document.getElementById('navHome').classList.add('active');
+        document.getElementById('mainContent').style.display = 'flex';
+        document.getElementById('settingsPage').style.display = 'none';
+        document.getElementById('toolsBar').style.display = 'flex';
+        document.getElementById('searchWrapper').style.display = 'flex';
+        document.getElementById('importBtn').style.display = 'block';
+        document.getElementById('pageTitle').textContent = 'Home';
+    } else if (page === 'settings') {
+        document.getElementById('navSettings').classList.add('active');
+        document.getElementById('mainContent').style.display = 'none';
+        document.getElementById('settingsPage').style.display = 'block';
+        document.getElementById('toolsBar').style.display = 'none';
+        document.getElementById('searchWrapper').style.display = 'none';
+        document.getElementById('importBtn').style.display = 'none';
+        document.getElementById('pageTitle').textContent = 'Settings';
+
+        // Hide timeline/comparison if visible
+        document.getElementById('timelinePage').style.display = 'none';
+        document.getElementById('comparisonPage').style.display = 'none';
+        document.getElementById('backBtn').style.display = 'none';
+    }
+}
+
+function updateToolsStats() {
+    const emails = new Set(allTests.map(t => t.email));
+    const toolsStats = document.getElementById('toolsStats');
+    if (toolsStats) {
+        toolsStats.textContent = `${emails.size} account${emails.size !== 1 ? 's' : ''}`;
+    }
 }
 
 // Initialize
@@ -212,12 +272,25 @@ async function loadSettings() {
     const result = await api.loadSettings();
     if (result.success && result.data) {
         settings = { ...settings, ...result.data };
+        // Ensure colorRanges has all fields
+        settings.colorRanges = {
+            instants: 1, juice: 10, excellent: 20, good: 40, neutral: 60,
+            ...settings.colorRanges
+        };
+
         document.getElementById('juicePercent').value = settings.juicePercent;
         document.getElementById('juiceAnchor').value = settings.juiceAnchor;
 
         // Row size
         const rowSizeSelect = document.getElementById('rowSizeSelect');
         if (rowSizeSelect) rowSizeSelect.value = settings.rowSize || 'normal';
+
+        // Color ranges
+        const colorInputs = ['instants', 'juice', 'excellent', 'good', 'neutral'];
+        colorInputs.forEach(key => {
+            const input = document.getElementById(`color${key.charAt(0).toUpperCase() + key.slice(1)}`);
+            if (input) input.value = settings.colorRanges[key];
+        });
 
         if (settings.darkMode) {
             document.body.classList.add('dark');
@@ -247,8 +320,13 @@ function migrateData(data) {
         console.log('Migrating legacy data to schema v1');
         return {
             version: 1,
-            tests: Array.isArray(data) ? data : []
+            tests: Array.isArray(data) ? data : [],
+            imports: []
         };
+    }
+    // Ensure imports array exists
+    if (!data.imports) {
+        data.imports = [];
     }
     return data;
 }
@@ -272,6 +350,7 @@ async function loadData() {
         }
 
         allTests = migratedData.tests;
+        importHistory = migratedData.imports || [];
         recalculateAll();
     }
 }
@@ -279,9 +358,61 @@ async function loadData() {
 async function saveData() {
     const dataToSave = {
         version: CURRENT_SCHEMA_VERSION,
-        tests: allTests
+        tests: allTests,
+        imports: importHistory
     };
     await api.saveData(dataToSave);
+}
+
+// Confirmation Modal Helper
+function showConfirmModal(title, message, actionText, onConfirm) {
+    const modal = document.getElementById('confirmModal');
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmMessage').textContent = message;
+    const actionBtn = document.getElementById('confirmActionBtn');
+    actionBtn.textContent = actionText || 'Confirm';
+
+    // Clone to remove old event listeners
+    const newBtn = actionBtn.cloneNode(true);
+    actionBtn.parentNode.replaceChild(newBtn, actionBtn);
+
+    newBtn.onclick = () => {
+        closeConfirmModal();
+        if (onConfirm) onConfirm();
+    };
+
+    modal.classList.add('visible');
+}
+
+function closeConfirmModal() {
+    document.getElementById('confirmModal').classList.remove('visible');
+}
+
+// Loading Overlay Helper
+function showLoadingOverlay(message) {
+    const overlay = document.getElementById('loadingOverlay');
+    const text = document.getElementById('loadingOverlayText');
+    text.textContent = message || 'Loading...';
+    overlay.classList.add('visible');
+}
+
+function hideLoadingOverlay() {
+    document.getElementById('loadingOverlay').classList.remove('visible');
+}
+
+async function clearAllData() {
+    showConfirmModal(
+        'Delete All Data',
+        'Are you sure you want to delete ALL data? This will permanently remove all imported tests and cannot be undone.',
+        'Delete Everything',
+        async () => {
+            saveToHistory();
+            allTests = [];
+            await saveData();
+            renderTable();
+            showToast('All data has been cleared', 'success');
+        }
+    );
 }
 
 // Undo/Redo Functions
@@ -359,7 +490,24 @@ async function importCSV() {
 
         saveToHistory();
 
+        // Generate import ID and tag tests
+        const importId = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+        const filename = filePath.split(/[/\\]/).pop(); // Get filename from path
+
+        tests.forEach(t => {
+            t.importId = importId;
+        });
+
         const warnings = processNewTests(tests);
+
+        // Track this import
+        importHistory.push({
+            id: importId,
+            filename: filename,
+            date: new Date().toISOString(),
+            testCount: tests.length
+        });
+
         recalculateAll();
         await saveData();
         renderTable();
@@ -377,6 +525,88 @@ async function importCSV() {
         showToast(`Import failed: ${error.message}`, 'error');
         console.error('Import error:', error);
     }
+}
+
+// Import History Management
+function showImportHistory() {
+    const modal = document.getElementById('importHistoryModal');
+    renderImportHistory();
+    modal.classList.add('visible');
+}
+
+function closeImportHistoryModal() {
+    document.getElementById('importHistoryModal').classList.remove('visible');
+}
+
+function renderImportHistory() {
+    const container = document.getElementById('importHistoryList');
+    container.innerHTML = '';
+
+    if (importHistory.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'import-history-empty';
+        empty.textContent = 'No imports yet. Import a CSV to get started!';
+        container.appendChild(empty);
+        return;
+    }
+
+    // Sort by date descending (newest first)
+    const sorted = [...importHistory].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    sorted.forEach(imp => {
+        const row = document.createElement('div');
+        row.className = 'import-history-row';
+
+        const info = document.createElement('div');
+        info.className = 'import-history-info';
+
+        const filename = document.createElement('div');
+        filename.className = 'import-history-filename';
+        filename.textContent = imp.filename;
+        info.appendChild(filename);
+
+        const meta = document.createElement('div');
+        meta.className = 'import-history-meta';
+        const date = new Date(imp.date);
+        meta.textContent = `${date.toLocaleDateString()} at ${date.toLocaleTimeString()} • ${imp.testCount} tests`;
+        info.appendChild(meta);
+
+        row.appendChild(info);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'import-remove-btn';
+        removeBtn.textContent = 'Remove';
+        removeBtn.onclick = () => removeImport(imp.id);
+        row.appendChild(removeBtn);
+
+        container.appendChild(row);
+    });
+}
+
+function removeImport(importId) {
+    const imp = importHistory.find(i => i.id === importId);
+    if (!imp) return;
+
+    showConfirmModal(
+        'Remove Import',
+        `Are you sure you want to remove "${imp.filename}"? This will delete ${imp.testCount} tests from this import.`,
+        'Remove',
+        async () => {
+            saveToHistory();
+
+            // Remove tests with this import ID
+            allTests = allTests.filter(t => t.importId !== importId);
+
+            // Remove from import history
+            importHistory = importHistory.filter(i => i.id !== importId);
+
+            recalculateAll();
+            await saveData();
+            renderTable();
+            renderImportHistory();
+            showToast('Import removed successfully', 'success');
+        }
+    );
 }
 
 // Validation helpers
@@ -591,6 +821,31 @@ function recalculateAll() {
     }
 }
 
+// Sorting
+function updateSortIndicators() {
+    document.querySelectorAll('.sortable-header').forEach(header => {
+        const indicator = header.querySelector('.sort-indicator');
+        if (header.dataset.sort === currentSort.field) {
+            header.classList.add('active');
+            indicator.textContent = currentSort.direction === 'asc' ? '\u25B2' : '\u25BC';
+        } else {
+            header.classList.remove('active');
+            indicator.textContent = '';
+        }
+    });
+}
+
+function toggleSort(field) {
+    if (currentSort.field === field) {
+        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort.field = field;
+        currentSort.direction = 'desc';
+    }
+    visibleRowCount = INITIAL_ROW_LIMIT;
+    renderTable();
+}
+
 // Table Rendering
 function renderTable() {
     const data = getTableData();
@@ -624,7 +879,23 @@ function renderTable() {
         return;
     }
 
-    data.sort((a, b) => (getOverallChange(b.email) || 0) - (getOverallChange(a.email) || 0));
+    // Sort data based on currentSort
+    if (currentSort.field === 'email') {
+        data.sort((a, b) => {
+            const cmp = a.email.localeCompare(b.email);
+            return currentSort.direction === 'asc' ? cmp : -cmp;
+        });
+    } else {
+        // Default: sort by change %
+        data.sort((a, b) => {
+            const aChange = getOverallChange(a.email) || 0;
+            const bChange = getOverallChange(b.email) || 0;
+            return currentSort.direction === 'asc' ? aChange - bChange : bChange - aChange;
+        });
+    }
+
+    // Update sort indicator in headers
+    updateSortIndicators();
 
     const visibleData = data.slice(0, visibleRowCount);
     const hasMore = data.length > visibleRowCount;
@@ -686,6 +957,18 @@ function renderTable() {
         btn.textContent = 'Timeline';
         btn.dataset.email = account.email;
         emailDiv.appendChild(btn);
+
+        // Add to Group button
+        const groupAddBtn = document.createElement('button');
+        groupAddBtn.className = 'view-all-btn group-add-quick';
+        groupAddBtn.textContent = groupName ? '\u270E' : '+';
+        groupAddBtn.title = groupName ? 'Change group' : 'Add to group';
+        groupAddBtn.dataset.email = account.email;
+        groupAddBtn.onclick = (e) => {
+            e.stopPropagation();
+            showQuickGroupPicker(account.email);
+        };
+        emailDiv.appendChild(groupAddBtn);
 
         emailCell.appendChild(emailDiv);
 
@@ -970,6 +1253,81 @@ function removeFromGroup(groupName, email) {
     }
 }
 
+function showQuickGroupPicker(email) {
+    const currentGroup = getAccountGroup(email);
+
+    // Create a quick picker dropdown
+    const existingPicker = document.getElementById('quickGroupPicker');
+    if (existingPicker) existingPicker.remove();
+
+    const picker = document.createElement('div');
+    picker.id = 'quickGroupPicker';
+    picker.className = 'quick-group-picker';
+
+    const title = document.createElement('div');
+    title.className = 'quick-group-title';
+    title.textContent = currentGroup ? `In group: ${currentGroup}` : 'Add to group';
+    picker.appendChild(title);
+
+    // Create group buttons
+    const groups = Object.keys(settings.groups || {});
+    if (groups.length === 0) {
+        const noGroups = document.createElement('div');
+        noGroups.className = 'quick-group-empty';
+        noGroups.textContent = 'No groups yet. Create one in Groups manager.';
+        picker.appendChild(noGroups);
+    } else {
+        groups.forEach(groupName => {
+            const groupBtn = document.createElement('button');
+            groupBtn.className = 'quick-group-option' + (currentGroup === groupName ? ' active' : '');
+            groupBtn.textContent = groupName;
+            groupBtn.onclick = () => {
+                addToGroup(groupName, email);
+                picker.remove();
+            };
+            picker.appendChild(groupBtn);
+        });
+    }
+
+    // Remove from group button
+    if (currentGroup) {
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'quick-group-option remove';
+        removeBtn.textContent = 'Remove from group';
+        removeBtn.onclick = () => {
+            removeFromGroup(currentGroup, email);
+            picker.remove();
+        };
+        picker.appendChild(removeBtn);
+    }
+
+    // Close button
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'quick-group-close';
+    closeBtn.textContent = '\u2715';
+    closeBtn.onclick = () => picker.remove();
+    picker.appendChild(closeBtn);
+
+    document.body.appendChild(picker);
+
+    // Position near the clicked button
+    const targetBtn = document.querySelector(`.group-add-quick[data-email="${email}"]`);
+    if (targetBtn) {
+        const rect = targetBtn.getBoundingClientRect();
+        picker.style.top = rect.bottom + 5 + 'px';
+        picker.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
+    }
+
+    // Close when clicking outside
+    const closeHandler = (e) => {
+        if (!picker.contains(e.target) && e.target !== targetBtn) {
+            picker.remove();
+            document.removeEventListener('click', closeHandler);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler), 10);
+}
+
 function renderGroupFilterChips() {
     // Remove existing group chips
     document.querySelectorAll('.filter-chip.group-chip').forEach(c => c.remove());
@@ -1042,7 +1400,15 @@ function runComparison() {
         showToast('Select at least 2 accounts to compare', 'error');
         return;
     }
-    showComparisonView(Array.from(selectedForCompare));
+
+    // Show loading overlay
+    showLoadingOverlay('Generating comparison...');
+
+    // Use setTimeout to allow UI to update before heavy computation
+    setTimeout(() => {
+        showComparisonView(Array.from(selectedForCompare));
+        hideLoadingOverlay();
+    }, 100);
 }
 
 function showComparisonView(emails) {
@@ -1376,12 +1742,24 @@ function formatDate(d) {
     return (date.getMonth() + 1).toString().padStart(2, '0') + '/' + date.getDate().toString().padStart(2, '0');
 }
 
+function formatDateLong(d) {
+    const date = new Date(d);
+    const months = ['January', 'February', 'March', 'April', 'May', 'June',
+                    'July', 'August', 'September', 'October', 'November', 'December'];
+    const day = date.getDate();
+    const suffix = (day === 1 || day === 21 || day === 31) ? 'st' :
+                   (day === 2 || day === 22) ? 'nd' :
+                   (day === 3 || day === 23) ? 'rd' : 'th';
+    return `${months[date.getMonth()]} ${day}${suffix}, ${date.getFullYear()}`;
+}
+
 function getColorClass(p) {
-    if (p <= 1) return 'instants';
-    if (p <= 10) return 'juice';
-    if (p <= 20) return 'excellent';
-    if (p <= 40) return 'good';
-    if (p <= 60) return 'neutral';
+    const ranges = settings.colorRanges || { instants: 1, juice: 10, excellent: 20, good: 40, neutral: 60 };
+    if (p <= ranges.instants) return 'instants';
+    if (p <= ranges.juice) return 'juice';
+    if (p <= ranges.excellent) return 'excellent';
+    if (p <= ranges.good) return 'good';
+    if (p <= ranges.neutral) return 'neutral';
     return 'poor';
 }
 
@@ -1399,6 +1777,16 @@ function getOverallChange(email) {
 function updateStats(tests) {
     const emails = new Set(tests.map(t => t.email));
     document.getElementById('totalAccounts').textContent = emails.size;
+
+    // Update data stats in settings
+    const dataStats = document.getElementById('dataStats');
+    if (dataStats) {
+        dataStats.textContent = `${emails.size} account${emails.size !== 1 ? 's' : ''}, ${tests.length} test${tests.length !== 1 ? 's' : ''}`;
+    }
+
+    // Update tools bar stats
+    updateToolsStats();
+
     if (tests.length > 0) {
         const bestPercent = Math.min(...tests.map(t => t.queuePercent));
         document.getElementById('bestPosition').textContent = bestPercent.toFixed(1) + '%';
@@ -1415,36 +1803,58 @@ function updateStats(tests) {
 function scrollToBestPosition() {
     if (!window.bestEmail) return;
 
-    const rows = document.querySelectorAll('#tableBody tr');
-    let targetRow = null;
+    // First, find the index of best email in the current sorted data
+    const data = getTableData();
+    data.sort((a, b) => (getOverallChange(b.email) || 0) - (getOverallChange(a.email) || 0));
 
-    rows.forEach(row => {
-        const emailCell = row.querySelector('.email-cell');
-        if (emailCell) {
-            // Match against the email span text, not the full cell (which includes badge text)
-            const emailSpan = emailCell.querySelector('span');
-            if (emailSpan && emailSpan.textContent.trim() === window.bestEmail) {
-                targetRow = row;
+    const bestIndex = data.findIndex(account => account.email === window.bestEmail);
+
+    if (bestIndex === -1) {
+        showToast('Best position account not found in current filter', 'error');
+        return;
+    }
+
+    // If the best email is beyond visible rows, expand and re-render
+    if (bestIndex >= visibleRowCount) {
+        visibleRowCount = bestIndex + 10; // Show a few more rows past the target
+        renderTable();
+    }
+
+    // Now find and scroll to the row
+    setTimeout(() => {
+        const rows = document.querySelectorAll('#tableBody tr');
+        let targetRow = null;
+
+        rows.forEach(row => {
+            const emailCell = row.querySelector('.email-cell');
+            if (emailCell) {
+                // Match against the email span text, not the full cell (which includes badge text)
+                const emailSpan = emailCell.querySelector('span:not(.badge)');
+                if (emailSpan && emailSpan.textContent.trim() === window.bestEmail) {
+                    targetRow = row;
+                }
             }
-        }
-    });
-
-    if (targetRow) {
-        const tableContainer = document.querySelector('.table-container');
-        const rowTop = targetRow.offsetTop;
-        const containerHeight = tableContainer.clientHeight;
-        const rowHeight = targetRow.clientHeight;
-
-        tableContainer.scrollTo({
-            top: rowTop - (containerHeight / 2) + (rowHeight / 2),
-            behavior: 'smooth'
         });
 
-        targetRow.classList.add('highlight');
-        setTimeout(() => {
-            targetRow.classList.remove('highlight');
-        }, 2000);
-    }
+        if (targetRow) {
+            const tableContainer = document.querySelector('.table-container');
+            const rowTop = targetRow.offsetTop;
+            const containerHeight = tableContainer.clientHeight;
+            const rowHeight = targetRow.clientHeight;
+
+            tableContainer.scrollTo({
+                top: rowTop - (containerHeight / 2) + (rowHeight / 2),
+                behavior: 'smooth'
+            });
+
+            targetRow.classList.add('highlight');
+            setTimeout(() => {
+                targetRow.classList.remove('highlight');
+            }, 2000);
+        } else {
+            showToast('Could not locate best position row', 'error');
+        }
+    }, 100);
 }
 
 function showTestDetails(test, email) {
@@ -1462,7 +1872,7 @@ function showTestDetails(test, email) {
         { label: 'Email', value: email },
         { label: 'Event', value: test.eventName },
         { label: 'Test #', value: String(test.testingNum) },
-        { label: 'Date', value: test.testingDate },
+        { label: 'Date', value: formatDateLong(test.testingDate) },
         { label: 'Queue', value: formatNum(test.queueNumber) + '/' + formatNum(test.queueAnchor) },
         { label: 'Queue %', value: test.queuePercent.toFixed(2) + '%' },
         { label: 'Change', value: change !== null ? (change >= 0 ? '+' : '') + change + '%' : 'N/A' },
@@ -1488,20 +1898,6 @@ function showTestDetails(test, email) {
 
     const modal = document.getElementById('testModal');
     modal.classList.add('visible');
-
-    const escHandler = (e) => {
-        if (e.key === 'Escape') {
-            closeTestModal();
-            document.removeEventListener('keydown', escHandler);
-        }
-    };
-    document.addEventListener('keydown', escHandler);
-
-    modal.onclick = (e) => {
-        if (e.target === modal) {
-            closeTestModal();
-        }
-    };
 }
 
 function closeTestModal() {
@@ -1563,8 +1959,15 @@ function setupEventListeners() {
         saveSettings();
     };
 
-    document.querySelector('.settings-btn').onclick = () => document.getElementById('settingsPanel').classList.toggle('open');
-    document.querySelector('.close-settings').onclick = () => document.getElementById('settingsPanel').classList.remove('open');
+    // Sidebar Navigation
+    const navHome = document.getElementById('navHome');
+    if (navHome) {
+        navHome.onclick = () => navigateTo('home');
+    }
+    const navSettings = document.getElementById('navSettings');
+    if (navSettings) {
+        navSettings.onclick = () => navigateTo('settings');
+    }
 
     document.getElementById('importBtn').onclick = importCSV;
     document.getElementById('backBtn').onclick = () => {
@@ -1580,6 +1983,32 @@ function setupEventListeners() {
     // Help button
     const helpBtn = document.getElementById('helpBtn');
     if (helpBtn) helpBtn.onclick = showHelp;
+
+    // Modal overlay click handlers (close when clicking outside content)
+    document.getElementById('testModal').onclick = (e) => {
+        if (e.target.id === 'testModal') closeTestModal();
+    };
+    document.getElementById('groupModal').onclick = (e) => {
+        if (e.target.id === 'groupModal') closeGroupModal();
+    };
+    document.getElementById('helpModal').onclick = (e) => {
+        if (e.target.id === 'helpModal') closeHelpModal();
+    };
+    document.getElementById('confirmModal').onclick = (e) => {
+        if (e.target.id === 'confirmModal') closeConfirmModal();
+    };
+    document.getElementById('importHistoryModal').onclick = (e) => {
+        if (e.target.id === 'importHistoryModal') closeImportHistoryModal();
+    };
+
+    // Modal close button handlers (ensure they work)
+    document.querySelectorAll('.modal-close').forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const modal = btn.closest('.modal-overlay');
+            if (modal) modal.classList.remove('visible');
+        };
+    });
 
     // Compare buttons
     const compareBtn = document.getElementById('compareBtn');
@@ -1677,6 +2106,25 @@ function setupEventListeners() {
         };
     }
 
+    // Color range inputs
+    const colorRangeKeys = ['instants', 'juice', 'excellent', 'good', 'neutral'];
+    colorRangeKeys.forEach(key => {
+        const inputId = `color${key.charAt(0).toUpperCase() + key.slice(1)}`;
+        const input = document.getElementById(inputId);
+        if (input) {
+            input.onchange = async (e) => {
+                let val = parseFloat(e.target.value);
+                if (isNaN(val) || val < 0) val = 0;
+                if (val > 100) val = 100;
+                e.target.value = val;
+                settings.colorRanges[key] = val;
+                await saveSettings();
+                renderTable();
+                showToast('Color range updated', 'success');
+            };
+        }
+    });
+
     // Keyboard Shortcuts
     document.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
@@ -1693,15 +2141,19 @@ function setupEventListeners() {
         }
         if ((e.ctrlKey || e.metaKey) && e.key === ',') {
             e.preventDefault();
-            document.getElementById('settingsPanel').classList.toggle('open');
+            navigateTo(currentPage === 'settings' ? 'home' : 'settings');
         }
         if (e.key === 'Escape') {
-            if (document.getElementById('helpModal').classList.contains('visible')) {
+            if (document.getElementById('confirmModal').classList.contains('visible')) {
+                closeConfirmModal();
+            } else if (document.getElementById('importHistoryModal').classList.contains('visible')) {
+                closeImportHistoryModal();
+            } else if (document.getElementById('helpModal').classList.contains('visible')) {
                 closeHelpModal();
             } else if (document.getElementById('groupModal').classList.contains('visible')) {
                 closeGroupModal();
-            } else if (document.getElementById('settingsPanel').classList.contains('open')) {
-                document.getElementById('settingsPanel').classList.remove('open');
+            } else if (currentPage === 'settings') {
+                navigateTo('home');
             } else if (document.getElementById('comparisonPage').style.display === 'block') {
                 hideComparisonView();
             } else if (document.getElementById('timelinePage').style.display === 'block') {
@@ -1716,4 +2168,12 @@ function setupEventListeners() {
 
     // Render group filter chips on startup
     renderGroupFilterChips();
+
+    // Sortable column headers
+    document.querySelectorAll('.sortable-header').forEach(header => {
+        header.onclick = () => {
+            const field = header.dataset.sort;
+            if (field) toggleSort(field);
+        };
+    });
 }
