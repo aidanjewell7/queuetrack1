@@ -66,24 +66,19 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('error', (error) => {
-    // "No published versions on GitHub" is expected when no releases exist yet
-    if (error.message && error.message.includes('No published versions')) {
-      console.log('Auto-updater: no releases published yet, skipping');
+    const msg = error.message || '';
+    // Suppress expected errors: no releases, or releases missing latest.yml
+    if (msg.includes('No published versions') || msg.includes('latest.yml')) {
+      console.log('Auto-updater: no valid release found, skipping');
       return;
     }
-    console.error('Auto-updater error:', error.message);
-    sendUpdateStatus('error', {
-      message: error.message
-    });
+    console.error('Auto-updater error:', msg);
+    sendUpdateStatus('error', { message: msg });
   });
 
   // Check for updates after a short delay so the window is ready
   setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((err) => {
-      if (!err.message || !err.message.includes('No published versions')) {
-        console.log('Auto-update check failed:', err.message);
-      }
-    });
+    autoUpdater.checkForUpdates().catch(() => {});
   }, 3000);
 
   // Check for updates every 30 minutes
@@ -107,10 +102,11 @@ ipcMain.handle('check-for-updates', async () => {
     const result = await autoUpdater.checkForUpdates();
     return { success: true, version: result?.updateInfo?.version };
   } catch (error) {
-    if (error.message && error.message.includes('No published versions')) {
-      return { success: false, error: 'No releases published yet.' };
+    const msg = error.message || '';
+    if (msg.includes('No published versions') || msg.includes('latest.yml')) {
+      return { success: false, error: 'No valid release found. Releases must be built with electron-builder.' };
     }
-    return { success: false, error: error.message };
+    return { success: false, error: msg };
   }
 });
 
