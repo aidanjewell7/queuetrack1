@@ -1,0 +1,63 @@
+Email,Testing Date,Event Name,Queue Number,Queue Anchor
+instant_winner@gmail.com,2026-02-01,Drake - For All The Dogs,150,200000
+instant_winner@gmail.com,2026-02-08,Drake - For All The Dogs,98,200000
+instant_winner@gmail.com,2026-02-14,Drake - For All The Dogs,42,200000
+juice_account@gmail.com,2026-02-01,Drake - For All The Dogs,18500,200000
+juice_account@gmail.com,2026-02-08,Drake - For All The Dogs,15200,200000
+juice_account@gmail.com,2026-02-14,Drake - For All The Dogs,12000,200000
+excellent_performer@yahoo.com,2026-02-01,Olivia Rodrigo - GUTS Tour,35000,200000
+excellent_performer@yahoo.com,2026-02-08,Olivia Rodrigo - GUTS Tour,28000,200000
+excellent_performer@yahoo.com,2026-02-14,Olivia Rodrigo - GUTS Tour,22000,200000
+steady_decline@outlook.com,2026-01-10,SZA - SOS Tour,50000,300000
+steady_decline@outlook.com,2026-01-17,SZA - SOS Tour,75000,300000
+steady_decline@outlook.com,2026-01-24,SZA - SOS Tour,100000,300000
+steady_decline@outlook.com,2026-01-31,SZA - SOS Tour,140000,300000
+steady_decline@outlook.com,2026-02-07,SZA - SOS Tour,190000,300000
+big_improver@gmail.com,2026-01-15,Morgan Wallen - One Night At A Time,180000,200000
+big_improver@gmail.com,2026-01-22,Morgan Wallen - One Night At A Time,120000,200000
+big_improver@gmail.com,2026-01-29,Morgan Wallen - One Night At A Time,60000,200000
+big_improver@gmail.com,2026-02-05,Morgan Wallen - One Night At A Time,25000,200000
+big_improver@gmail.com,2026-02-12,Morgan Wallen - One Night At A Time,8000,200000
+flat_liner@hotmail.com,2026-02-01,Billie Eilish - Hit Me Hard,100000,200000
+flat_liner@hotmail.com,2026-02-08,Billie Eilish - Hit Me Hard,100500,200000
+flat_liner@hotmail.com,2026-02-14,Billie Eilish - Hit Me Hard,99800,200000
+volatile_account@icloud.com,2026-01-20,Kendrick Lamar - Big Steppers,20000,200000
+volatile_account@icloud.com,2026-01-27,Kendrick Lamar - Big Steppers,150000,200000
+volatile_account@icloud.com,2026-02-03,Kendrick Lamar - Big Steppers,10000,200000
+volatile_account@icloud.com,2026-02-10,Kendrick Lamar - Big Steppers,175000,200000
+volatile_account@icloud.com,2026-02-14,Kendrick Lamar - Big Steppers,5000,200000
+low_anchor@gmail.com,2026-02-01,Local Band - Club Show,500,5000
+low_anchor@gmail.com,2026-02-08,Local Band - Club Show,450,5000
+low_anchor@gmail.com,2026-02-14,Local Band - Club Show,380,5000
+high_anchor@gmail.com,2026-02-01,BTS - World Tour,450000,1000000
+high_anchor@gmail.com,2026-02-08,BTS - World Tour,380000,1000000
+high_anchor@gmail.com,2026-02-14,BTS - World Tour,320000,1000000
+single_test_only@gmail.com,2026-02-14,Adele - Weekends,75000,200000
+two_events_user@outlook.com,2026-02-01,Post Malone - Austin Tour,60000,200000
+two_events_user@outlook.com,2026-02-08,Post Malone - Austin Tour,45000,200000
+two_events_user@outlook.com,2026-02-01,Dua Lipa - Future Nostalgia,130000,250000
+two_events_user@outlook.com,2026-02-08,Dua Lipa - Future Nostalgia,95000,250000
+borderline_juice@yahoo.com,2026-02-01,The Weeknd - After Hours,21000,200000
+borderline_juice@yahoo.com,2026-02-08,The Weeknd - After Hours,20100,200000
+borderline_juice@yahoo.com,2026-02-14,The Weeknd - After Hours,19800,200000
+near_bottom@gmail.com,2026-02-01,Justin Bieber - Justice Tour,185000,200000
+near_bottom@gmail.com,2026-02-08,Justin Bieber - Justice Tour,192000,200000
+near_bottom@gmail.com,2026-02-14,Justin Bieber - Justice Tour,198000,200000
+multi_event_star@icloud.com,2026-01-15,Taylor Swift - Eras Tour,5000,200000
+multi_event_star@icloud.com,2026-01-22,Taylor Swift - Eras Tour,4200,200000
+multi_event_star@icloud.com,2026-01-29,Taylor Swift - Eras Tour,3100,200000
+multi_event_star@icloud.com,2026-01-15,Beyonce - Renaissance,8000,285000
+multi_event_star@icloud.com,2026-01-22,Beyonce - Renaissance,6500,285000
+multi_event_star@icloud.com,2026-01-29,Beyonce - Renaissance,4800,285000
+multi_event_star@icloud.com,2026-01-15,Bad Bunny - Most Wanted,12000,200000
+multi_event_star@icloud.com,2026-01-22,Bad Bunny - Most Wanted,9500,200000
+multi_event_star@icloud.com,2026-01-29,Bad Bunny - Most Wanted,7000,200000
+alt_date_format@gmail.com,02/01/2026,Coldplay - Music of Spheres,90000,300000
+alt_date_format@gmail.com,02/08/2026,Coldplay - Music of Spheres,72000,300000
+alt_date_format@gmail.com,02/14/2026,Coldplay - Music of Spheres,55000,300000
+caps_email@GMAIL.COM,2026-02-01,Ed Sheeran - Mathematics,45000,200000
+caps_email@GMAIL.COM,2026-02-08,Ed Sheeran - Mathematics,38000,200000
+caps_email@GMAIL.COM,2026-02-14,Ed Sheeran - Mathematics,30000,200000
+anchor_change_user@yahoo.com,2026-02-01,Sabrina Carpenter - Tour,80000,200000
+anchor_change_user@yahoo.com,2026-02-08,Sabrina Carpenter - Tour,75000,250000
+anchor_change_user@yahoo.com,2026-02-14,Sabrina Carpenter - Tour,60000,300000
