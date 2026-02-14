@@ -489,6 +489,9 @@ async function importCSV() {
         renderTable();
         checkSoundTriggers();
 
+        // Celebrate successful import with confetti
+        fireConfetti();
+
         let msg = `Successfully imported ${tests.length} test${tests.length > 1 ? 's' : ''}!`;
         showToast(msg, 'success');
 
@@ -1049,14 +1052,37 @@ function animateQueueNumbers() {
     });
 }
 
-// Apply glow pulse to instants and juice cells
+// Apply persistent glow pulse to instants and juice cells
 function applyGlowEffects() {
     document.querySelectorAll('.test-cell.instants, .test-cell.juice').forEach(cell => {
         cell.classList.add('glow-pulse');
-        cell.addEventListener('animationend', () => {
-            cell.classList.remove('glow-pulse');
-        }, { once: true });
     });
+}
+
+// Fire confetti celebration effect
+function fireConfetti() {
+    const container = document.createElement('div');
+    container.className = 'confetti-container';
+    document.body.appendChild(container);
+
+    const colors = ['#7c5ce0', '#4ecdc4', '#6366f1', '#00e676', '#ff6b6b', '#ffd93d', '#a78bfa', '#34d399'];
+    const count = 60;
+
+    for (let i = 0; i < count; i++) {
+        const piece = document.createElement('div');
+        piece.className = 'confetti-piece';
+        piece.style.left = Math.random() * 100 + '%';
+        piece.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+        piece.style.animationDelay = (Math.random() * 0.8) + 's';
+        piece.style.animationDuration = (2 + Math.random() * 1.5) + 's';
+        piece.style.width = (6 + Math.random() * 6) + 'px';
+        piece.style.height = (6 + Math.random() * 6) + 'px';
+        piece.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+        piece.style.transform = `rotate(${Math.random() * 360}deg)`;
+        container.appendChild(piece);
+    }
+
+    setTimeout(() => container.remove(), 4000);
 }
 
 // Synthesize a satisfying "ding" sound via Web Audio API
@@ -1105,7 +1131,7 @@ function checkSoundTriggers() {
     }
 }
 
-// Best Queues strip: sorted by best (lowest) queue%, bottom-to-top
+// Best Queues strip: sorted by best (lowest) queue%, with shuffle animation
 function updateBestQueuesStrip() {
     const strip = document.getElementById('bestQueuesStrip');
     const list = document.getElementById('bestQueuesList');
@@ -1124,7 +1150,7 @@ function updateBestQueuesStrip() {
         accounts.push({ email, queuePercent: tests[0].queuePercent });
     }
 
-    // Sort by best queue (lowest %) — best at bottom due to column-reverse
+    // Sort by best queue (lowest %) — best at top
     accounts.sort((a, b) => a.queuePercent - b.queuePercent);
 
     // Only show top 10
@@ -1134,6 +1160,13 @@ function updateBestQueuesStrip() {
         strip.style.display = 'none';
         return;
     }
+
+    // Check if order changed for shuffle animation
+    const prevOrder = Array.from(list.querySelectorAll('.best-queue-item')).map(el =>
+        el.querySelector('.best-queue-email')?.textContent
+    );
+    const newOrder = top.map(a => a.email);
+    const orderChanged = prevOrder.length > 0 && JSON.stringify(prevOrder) !== JSON.stringify(newOrder);
 
     strip.style.display = 'block';
     list.innerHTML = '';
@@ -1145,7 +1178,17 @@ function updateBestQueuesStrip() {
         if (account.queuePercent >= 1 && account.queuePercent <= 5) {
             item.classList.add('great');
         }
-        item.style.animationDelay = (i * 0.06) + 's';
+
+        // Shuffle animation when order changes
+        if (orderChanged) {
+            item.classList.add('shuffling');
+            item.style.animationDelay = (i * 0.08) + 's';
+            item.addEventListener('animationend', () => {
+                item.classList.remove('shuffling');
+            }, { once: true });
+        } else {
+            item.style.animationDelay = (i * 0.06) + 's';
+        }
 
         const emailSpan = document.createElement('span');
         emailSpan.className = 'best-queue-email';
