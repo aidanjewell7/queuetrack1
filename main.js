@@ -3,9 +3,8 @@ const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 
-// Must be set immediately after import — electron-updater checks this
-// in isUpdaterActive() and will skip updates if not set before any call
-autoUpdater.forceDevUpdateConfig = !app.isPackaged;
+// Only enable auto-updater when the app is actually packaged and installed.
+// In dev mode there are no published GitHub releases to check against.
 
 let mainWindow;
 
@@ -21,12 +20,15 @@ process.on('uncaughtException', (error) => {
 // AUTO-UPDATER
 // ============================
 function setupAutoUpdater() {
+  // Skip auto-updater entirely in dev mode — no published releases to check
+  if (!app.isPackaged) {
+    console.log('Auto-updater: skipped (running in dev mode)');
+    return;
+  }
+
   // Configure updater
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
-
-  // Enable logging for debugging update issues
-  autoUpdater.logger = app.isPackaged ? null : console;
 
   autoUpdater.on('checking-for-update', () => {
     console.log('Auto-updater: checking for updates...');
@@ -64,6 +66,11 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('error', (error) => {
+    // "No published versions on GitHub" is expected when no releases exist yet
+    if (error.message && error.message.includes('No published versions')) {
+      console.log('Auto-updater: no releases published yet, skipping');
+      return;
+    }
     console.error('Auto-updater error:', error.message);
     sendUpdateStatus('error', {
       message: error.message
@@ -73,7 +80,9 @@ function setupAutoUpdater() {
   // Check for updates after a short delay so the window is ready
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((err) => {
-      console.log('Auto-update check failed (this is normal in dev):', err.message);
+      if (!err.message || !err.message.includes('No published versions')) {
+        console.log('Auto-update check failed:', err.message);
+      }
     });
   }, 3000);
 
@@ -91,10 +100,16 @@ function sendUpdateStatus(status, data = {}) {
 
 // IPC handlers for update actions
 ipcMain.handle('check-for-updates', async () => {
+  if (!app.isPackaged) {
+    return { success: false, error: 'Updates are not available in dev mode. Build and install the app first.' };
+  }
   try {
     const result = await autoUpdater.checkForUpdates();
     return { success: true, version: result?.updateInfo?.version };
   } catch (error) {
+    if (error.message && error.message.includes('No published versions')) {
+      return { success: false, error: 'No releases published yet.' };
+    }
     return { success: false, error: error.message };
   }
 });
