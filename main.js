@@ -3,6 +3,10 @@ const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 
+// Must be set immediately after import — electron-updater checks this
+// in isUpdaterActive() and will skip updates if not set before any call
+autoUpdater.forceDevUpdateConfig = !app.isPackaged;
+
 let mainWindow;
 
 // Handle uncaught exceptions
@@ -22,7 +26,7 @@ function setupAutoUpdater() {
   autoUpdater.autoInstallOnAppQuit = true;
 
   // Enable logging for debugging update issues
-  autoUpdater.logger = require('electron').app.isPackaged ? null : console;
+  autoUpdater.logger = app.isPackaged ? null : console;
 
   autoUpdater.on('checking-for-update', () => {
     console.log('Auto-updater: checking for updates...');
@@ -309,7 +313,7 @@ ipcMain.handle('load-settings', async () => {
     const userDataPath = app.getPath('userData');
     const settingsPath = path.join(userDataPath, 'settings.json');
     
-    const defaultSettings = { juicePercent: 10, juiceAnchor: 50000, darkMode: false, rowSize: 'normal', groups: {} };
+    const defaultSettings = { darkMode: false, rowSize: 'normal', groups: {} };
     if (fs.existsSync(settingsPath)) {
       const raw = fs.readFileSync(settingsPath, 'utf-8');
       try {

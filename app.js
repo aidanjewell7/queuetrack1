@@ -19,19 +19,9 @@ const ROW_SIZES = {
 let allTests = [];
 let importHistory = []; // Track CSV imports { id, filename, date, testCount }
 let settings = {
-    juicePercent: 10,
-    juiceAnchor: 50000,
     darkMode: false,
     rowSize: 'normal',
-    groups: {},
-    colorRanges: {
-        instants: 1,
-        juice: 10,
-        excellent: 20,
-        good: 40,
-        neutral: 60
-        // poor is anything above neutral
-    }
+    groups: {}
 };
 let currentFilter = 'all';
 let currentSort = { field: 'change', direction: 'desc' };
@@ -145,7 +135,7 @@ function setupAutoUpdater() {
                     isManualUpdateCheck = false;
                     const checkBtn = document.getElementById('checkUpdatesBtn');
                     if (checkBtn) { checkBtn.disabled = false; checkBtn.textContent = 'Check for Updates'; }
-                    document.getElementById('settingsPanel').classList.remove('open');
+                    navigateTo('home');
                     showToast(`Update v${data.version} found! Click Download in the bar above.`, 'success');
                 }
 
@@ -272,25 +262,10 @@ async function loadSettings() {
     const result = await api.loadSettings();
     if (result.success && result.data) {
         settings = { ...settings, ...result.data };
-        // Ensure colorRanges has all fields
-        settings.colorRanges = {
-            instants: 1, juice: 10, excellent: 20, good: 40, neutral: 60,
-            ...settings.colorRanges
-        };
-
-        document.getElementById('juicePercent').value = settings.juicePercent;
-        document.getElementById('juiceAnchor').value = settings.juiceAnchor;
 
         // Row size
         const rowSizeSelect = document.getElementById('rowSizeSelect');
         if (rowSizeSelect) rowSizeSelect.value = settings.rowSize || 'normal';
-
-        // Color ranges
-        const colorInputs = ['instants', 'juice', 'excellent', 'good', 'neutral'];
-        colorInputs.forEach(key => {
-            const input = document.getElementById(`color${key.charAt(0).toUpperCase() + key.slice(1)}`);
-            if (input) input.value = settings.colorRanges[key];
-        });
 
         if (settings.darkMode) {
             document.body.classList.add('dark');
@@ -1069,7 +1044,7 @@ function shouldInclude(email, tests) {
 
     switch (currentFilter) {
         case 'instants': return latest.queuePercent <= 1;
-        case 'juice': return latest.queuePercent <= settings.juicePercent && latest.queueAnchor >= settings.juiceAnchor;
+        case 'juice': return latest.queuePercent <= 10 && latest.queueAnchor >= 50000;
         case 'excellent': return latest.queuePercent > 10 && latest.queuePercent <= 20;
         case 'improving': return change !== null && change > 0;
         case 'declining': return change !== null && change < 0;
@@ -1754,18 +1729,17 @@ function formatDateLong(d) {
 }
 
 function getColorClass(p) {
-    const ranges = settings.colorRanges || { instants: 1, juice: 10, excellent: 20, good: 40, neutral: 60 };
-    if (p <= ranges.instants) return 'instants';
-    if (p <= ranges.juice) return 'juice';
-    if (p <= ranges.excellent) return 'excellent';
-    if (p <= ranges.good) return 'good';
-    if (p <= ranges.neutral) return 'neutral';
+    if (p <= 1) return 'instants';
+    if (p <= 10) return 'juice';
+    if (p <= 20) return 'excellent';
+    if (p <= 40) return 'good';
+    if (p <= 60) return 'neutral';
     return 'poor';
 }
 
 function hasJuice(account) {
     const latest = account.tests[0];
-    return latest.queuePercent <= settings.juicePercent && latest.queueAnchor >= settings.juiceAnchor;
+    return latest.queuePercent <= 10 && latest.queueAnchor >= 50000;
 }
 
 function getOverallChange(email) {
@@ -2072,29 +2046,6 @@ function setupEventListeners() {
         }, 300);
     };
 
-    // Settings with bounds validation
-    document.getElementById('juicePercent').onchange = async (e) => {
-        let val = parseFloat(e.target.value);
-        if (isNaN(val) || val < 0) val = 0;
-        if (val > 100) val = 100;
-        e.target.value = val;
-        settings.juicePercent = val;
-        await saveSettings();
-        showToast('Juice threshold updated', 'success');
-        renderTable();
-    };
-
-    document.getElementById('juiceAnchor').onchange = async (e) => {
-        let val = parseInt(e.target.value);
-        if (isNaN(val) || val < 0) val = 0;
-        if (val > 10000000) val = 10000000;
-        e.target.value = val;
-        settings.juiceAnchor = val;
-        await saveSettings();
-        showToast('Juice anchor updated', 'success');
-        renderTable();
-    };
-
     // Row size selector
     const rowSizeSelect = document.getElementById('rowSizeSelect');
     if (rowSizeSelect) {
@@ -2105,25 +2056,6 @@ function setupEventListeners() {
             showToast(`Row size set to ${ROW_SIZES[settings.rowSize].label}`, 'success');
         };
     }
-
-    // Color range inputs
-    const colorRangeKeys = ['instants', 'juice', 'excellent', 'good', 'neutral'];
-    colorRangeKeys.forEach(key => {
-        const inputId = `color${key.charAt(0).toUpperCase() + key.slice(1)}`;
-        const input = document.getElementById(inputId);
-        if (input) {
-            input.onchange = async (e) => {
-                let val = parseFloat(e.target.value);
-                if (isNaN(val) || val < 0) val = 0;
-                if (val > 100) val = 100;
-                e.target.value = val;
-                settings.colorRanges[key] = val;
-                await saveSettings();
-                renderTable();
-                showToast('Color range updated', 'success');
-            };
-        }
-    });
 
     // Keyboard Shortcuts
     document.addEventListener('keydown', (e) => {
@@ -2165,6 +2097,23 @@ function setupEventListeners() {
             document.getElementById('searchInput').focus();
         }
     });
+
+    // Settings page buttons
+    const viewImportsBtn = document.getElementById('viewImportsBtn');
+    if (viewImportsBtn) viewImportsBtn.onclick = showImportHistory;
+
+    const clearAllDataBtn = document.getElementById('clearAllDataBtn');
+    if (clearAllDataBtn) clearAllDataBtn.onclick = clearAllData;
+
+    const checkUpdatesBtn = document.getElementById('checkUpdatesBtn');
+    if (checkUpdatesBtn) checkUpdatesBtn.onclick = checkForUpdatesManual;
+
+    // Modal action buttons
+    const testModalOkBtn = document.getElementById('testModalOkBtn');
+    if (testModalOkBtn) testModalOkBtn.onclick = closeTestModal;
+
+    const confirmCancelBtn = document.getElementById('confirmCancelBtn');
+    if (confirmCancelBtn) confirmCancelBtn.onclick = closeConfirmModal;
 
     // Render group filter chips on startup
     renderGroupFilterChips();
