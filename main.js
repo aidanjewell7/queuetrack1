@@ -3,6 +3,10 @@ const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 
+// Must be set immediately after import — electron-updater checks this
+// in isUpdaterActive() and will skip updates if not set before any call
+autoUpdater.forceDevUpdateConfig = !app.isPackaged;
+
 let mainWindow;
 
 // Handle uncaught exceptions
@@ -20,11 +24,6 @@ function setupAutoUpdater() {
   // Configure updater
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
-
-  // Enable dev mode update checking so updates work in non-production builds
-  if (!app.isPackaged) {
-    autoUpdater.forceDevUpdateConfig = true;
-  }
 
   // Enable logging for debugging update issues
   autoUpdater.logger = app.isPackaged ? null : console;
