@@ -3,9 +3,8 @@ const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 
-// Must be set immediately after import — electron-updater checks this
-// in isUpdaterActive() and will skip updates if not set before any call
-autoUpdater.forceDevUpdateConfig = !app.isPackaged;
+// Only enable auto-updater when the app is actually packaged and installed.
+// In dev mode there are no published GitHub releases to check against.
 
 let mainWindow;
 
@@ -21,12 +20,15 @@ process.on('uncaughtException', (error) => {
 // AUTO-UPDATER
 // ============================
 function setupAutoUpdater() {
+  // Skip auto-updater entirely in dev mode — no published releases to check
+  if (!app.isPackaged) {
+    console.log('Auto-updater: skipped (running in dev mode)');
+    return;
+  }
+
   // Configure updater
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
-
-  // Enable logging for debugging update issues
-  autoUpdater.logger = app.isPackaged ? null : console;
 
   autoUpdater.on('checking-for-update', () => {
     console.log('Auto-updater: checking for updates...');
@@ -64,17 +66,19 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on('error', (error) => {
-    console.error('Auto-updater error:', error.message);
-    sendUpdateStatus('error', {
-      message: error.message
-    });
+    const msg = error.message || '';
+    // Suppress expected errors: no releases, or releases missing latest.yml
+    if (msg.includes('No published versions') || msg.includes('latest.yml')) {
+      console.log('Auto-updater: no valid release found, skipping');
+      return;
+    }
+    console.error('Auto-updater error:', msg);
+    sendUpdateStatus('error', { message: msg });
   });
 
   // Check for updates after a short delay so the window is ready
   setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((err) => {
-      console.log('Auto-update check failed (this is normal in dev):', err.message);
-    });
+    autoUpdater.checkForUpdates().catch(() => {});
   }, 3000);
 
   // Check for updates every 30 minutes
@@ -91,11 +95,18 @@ function sendUpdateStatus(status, data = {}) {
 
 // IPC handlers for update actions
 ipcMain.handle('check-for-updates', async () => {
+  if (!app.isPackaged) {
+    return { success: false, error: 'Updates are not available in dev mode. Build and install the app first.' };
+  }
   try {
     const result = await autoUpdater.checkForUpdates();
     return { success: true, version: result?.updateInfo?.version };
   } catch (error) {
-    return { success: false, error: error.message };
+    const msg = error.message || '';
+    if (msg.includes('No published versions') || msg.includes('latest.yml')) {
+      return { success: false, error: 'No valid release found. Releases must be built with electron-builder.' };
+    }
+    return { success: false, error: msg };
   }
 });
 
