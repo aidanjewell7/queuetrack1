@@ -248,61 +248,13 @@
                         </div>
 
                         <div class="settings-card">
-                            <div class="settings-card-title">Juice Threshold</div>
-                            <div class="setting-item">
-                                <label class="setting-label">Max Queue % for Juice</label>
-                                <input type="number" class="setting-input" id="juicePercent" value="10" min="0" max="100">
-                            </div>
-                            <div class="setting-item">
-                                <label class="setting-label">Min Anchor for Juice</label>
-                                <input type="number" class="setting-input" id="juiceAnchor" value="50000" min="0" max="10000000" step="1000">
-                            </div>
-                        </div>
-
-                        <div class="settings-card settings-card-wide">
-                            <div class="settings-card-title">Color Ranges</div>
-                            <div class="color-range-grid">
-                                <div class="color-range-item">
-                                    <span class="color-swatch instants"></span>
-                                    <label>Instants (%)</label>
-                                    <input type="number" class="color-range-input" id="colorInstants" value="1" min="0" max="100" step="0.5">
-                                </div>
-                                <div class="color-range-item">
-                                    <span class="color-swatch juice"></span>
-                                    <label>Juice (%)</label>
-                                    <input type="number" class="color-range-input" id="colorJuice" value="10" min="0" max="100" step="0.5">
-                                </div>
-                                <div class="color-range-item">
-                                    <span class="color-swatch excellent"></span>
-                                    <label>Excellent (%)</label>
-                                    <input type="number" class="color-range-input" id="colorExcellent" value="20" min="0" max="100" step="0.5">
-                                </div>
-                                <div class="color-range-item">
-                                    <span class="color-swatch good"></span>
-                                    <label>Good (%)</label>
-                                    <input type="number" class="color-range-input" id="colorGood" value="40" min="0" max="100" step="0.5">
-                                </div>
-                                <div class="color-range-item">
-                                    <span class="color-swatch neutral"></span>
-                                    <label>Neutral (%)</label>
-                                    <input type="number" class="color-range-input" id="colorNeutral" value="60" min="0" max="100" step="0.5">
-                                </div>
-                                <div class="color-range-item">
-                                    <span class="color-swatch poor"></span>
-                                    <label>Poor</label>
-                                    <span class="color-range-note">Above neutral</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="settings-card">
                             <div class="settings-card-title">Data Management</div>
                             <div style="font-size: 13px; color: #86868b; margin-bottom: 16px;">
                                 <span id="dataStats">0 accounts, 0 tests</span>
                             </div>
                             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                                <button class="action-btn" onclick="showImportHistory()">View Imports</button>
-                                <button class="action-btn danger-btn" onclick="clearAllData()">Clear All Data</button>
+                                <button class="action-btn" id="viewImportsBtn">View Imports</button>
+                                <button class="action-btn danger-btn" id="clearAllDataBtn">Clear All Data</button>
                             </div>
                         </div>
 
@@ -311,7 +263,7 @@
                             <div style="font-size: 14px; color: #1d1d1f; margin-bottom: 12px;">
                                 QueueTrack <span id="appVersion" style="color: #86868b;">v1.0.0</span>
                             </div>
-                            <button class="action-btn" id="checkUpdatesBtn" onclick="checkForUpdatesManual()">Check for Updates</button>
+                            <button class="action-btn" id="checkUpdatesBtn">Check for Updates</button>
                         </div>
 
                         <div class="settings-card">
@@ -335,13 +287,13 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Test Details</h3>
-                <button class="modal-close" onclick="closeTestModal()">&times;</button>
+                <button class="modal-close">&times;</button>
             </div>
             <div class="modal-body" id="modalBody">
                 <!-- Content will be populated by JavaScript -->
             </div>
             <div class="modal-footer">
-                <button class="modal-btn" onclick="closeTestModal()">OK</button>
+                <button class="modal-btn" id="testModalOkBtn">OK</button>
             </div>
         </div>
     </div>
@@ -351,7 +303,7 @@
         <div class="modal-content modal-wide">
             <div class="modal-header">
                 <h3 class="modal-title">Account Groups</h3>
-                <button class="modal-close" onclick="closeGroupModal()">&times;</button>
+                <button class="modal-close">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="group-create-row">
@@ -370,7 +322,7 @@
         <div class="modal-content modal-wide">
             <div class="modal-header">
                 <h3 class="modal-title">Import History</h3>
-                <button class="modal-close" onclick="closeImportHistoryModal()">&times;</button>
+                <button class="modal-close">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="import-history-list" id="importHistoryList">
@@ -385,13 +337,13 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title" id="confirmTitle">Confirm</h3>
-                <button class="modal-close" onclick="closeConfirmModal()">&times;</button>
+                <button class="modal-close">&times;</button>
             </div>
             <div class="modal-body">
                 <p id="confirmMessage" style="font-size: 14px; color: #48484a; line-height: 1.6;"></p>
             </div>
             <div class="modal-footer" style="gap: 8px;">
-                <button class="action-btn" onclick="closeConfirmModal()">Cancel</button>
+                <button class="action-btn" id="confirmCancelBtn">Cancel</button>
                 <button class="action-btn danger-btn" id="confirmActionBtn">Confirm</button>
             </div>
         </div>
@@ -410,7 +362,7 @@
         <div class="modal-content modal-wide">
             <div class="modal-header">
                 <h3 class="modal-title">Help &amp; Guide</h3>
-                <button class="modal-close" onclick="closeHelpModal()">&times;</button>
+                <button class="modal-close">&times;</button>
             </div>
             <div class="modal-body help-body">
                 <div class="help-section">

@@ -21,8 +21,13 @@ function setupAutoUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  // Enable dev mode update checking so updates work in non-production builds
+  if (!app.isPackaged) {
+    autoUpdater.forceDevUpdateConfig = true;
+  }
+
   // Enable logging for debugging update issues
-  autoUpdater.logger = require('electron').app.isPackaged ? null : console;
+  autoUpdater.logger = app.isPackaged ? null : console;
 
   autoUpdater.on('checking-for-update', () => {
     console.log('Auto-updater: checking for updates...');
@@ -309,7 +314,7 @@ ipcMain.handle('load-settings', async () => {
     const userDataPath = app.getPath('userData');
     const settingsPath = path.join(userDataPath, 'settings.json');
     
-    const defaultSettings = { juicePercent: 10, juiceAnchor: 50000, darkMode: false, rowSize: 'normal', groups: {} };
+    const defaultSettings = { darkMode: false, rowSize: 'normal', groups: {} };
     if (fs.existsSync(settingsPath)) {
       const raw = fs.readFileSync(settingsPath, 'utf-8');
       try {
