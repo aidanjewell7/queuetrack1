@@ -32,6 +32,7 @@ let compareMode = false;
 let selectedForCompare = new Set();
 let isManualUpdateCheck = false;
 let currentPage = 'home'; // 'home' or 'settings'
+let previousBestByEmail = {}; // Track previous best queue% per email for sound triggers
 
 // HTML escaping utility to prevent XSS
 function escapeHtml(str) {
@@ -486,6 +487,7 @@ async function importCSV() {
         recalculateAll();
         await saveData();
         renderTable();
+        checkSoundTriggers();
 
         let msg = `Successfully imported ${tests.length} test${tests.length > 1 ? 's' : ''}!`;
         showToast(msg, 'success');
@@ -982,10 +984,17 @@ function renderTable() {
     }
 
     updateStats(allTests);
+    updateBestQueuesStrip();
 
     if (data.length > INITIAL_ROW_LIMIT) {
         console.log(`Performance: Showing ${visibleData.length} of ${data.length} accounts`);
     }
+
+    // Trigger number animations and glow effects after DOM update
+    requestAnimationFrame(() => {
+        animateQueueNumbers();
+        applyGlowEffects();
+    });
 }
 
 function createTestCell(test, email) {
@@ -1007,10 +1016,149 @@ function createTestCell(test, email) {
 
     const pct = document.createElement('div');
     pct.className = 'queue-percent';
-    pct.textContent = test.queuePercent.toFixed(1) + '%';
+    pct.dataset.targetValue = test.queuePercent.toFixed(1);
+    pct.textContent = '0.0%';
     div.appendChild(pct);
 
     return div;
+}
+
+// Animate all queue-percent elements that haven't been animated yet
+function animateQueueNumbers() {
+    const els = document.querySelectorAll('.queue-percent[data-target-value]');
+    els.forEach(el => {
+        const target = parseFloat(el.dataset.targetValue);
+        if (isNaN(target)) return;
+        el.removeAttribute('data-target-value');
+        const duration = 600; // ms
+        const startTime = performance.now();
+        function tick(now) {
+            const elapsed = now - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            // ease-out cubic
+            const eased = 1 - Math.pow(1 - progress, 3);
+            const current = (target * eased).toFixed(1);
+            el.textContent = current + '%';
+            if (progress < 1) {
+                requestAnimationFrame(tick);
+            } else {
+                el.textContent = target.toFixed(1) + '%';
+            }
+        }
+        requestAnimationFrame(tick);
+    });
+}
+
+// Apply glow pulse to instants and juice cells
+function applyGlowEffects() {
+    document.querySelectorAll('.test-cell.instants, .test-cell.juice').forEach(cell => {
+        cell.classList.add('glow-pulse');
+        cell.addEventListener('animationend', () => {
+            cell.classList.remove('glow-pulse');
+        }, { once: true });
+    });
+}
+
+// Synthesize a satisfying "ding" sound via Web Audio API
+function playDingSound() {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+        osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.08); // E6
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.4);
+    } catch (e) {
+        // Audio not available, skip silently
+    }
+}
+
+// Check if any accounts crossed into instants/juice since last render
+function checkSoundTriggers() {
+    const groups = {};
+    allTests.forEach(t => {
+        if (!groups[t.email]) groups[t.email] = [];
+        groups[t.email].push(t);
+    });
+
+    let shouldDing = false;
+    for (const email in groups) {
+        const tests = groups[email].sort((a, b) => new Date(b.testingDate) - new Date(a.testingDate));
+        const currentBest = tests[0].queuePercent;
+        const prevBest = previousBestByEmail[email];
+
+        // Ding if: account's latest test is <=10% AND it wasn't there before
+        if (currentBest <= 10 && (prevBest === undefined || prevBest > 10)) {
+            shouldDing = true;
+        }
+        previousBestByEmail[email] = currentBest;
+    }
+
+    if (shouldDing) {
+        playDingSound();
+    }
+}
+
+// Best Queues strip: sorted by best (lowest) queue%, bottom-to-top
+function updateBestQueuesStrip() {
+    const strip = document.getElementById('bestQueuesStrip');
+    const list = document.getElementById('bestQueuesList');
+    if (!strip || !list) return;
+
+    // Group tests by email, get each account's best (most recent) queue%
+    const groups = {};
+    allTests.forEach(t => {
+        if (!groups[t.email]) groups[t.email] = [];
+        groups[t.email].push(t);
+    });
+
+    const accounts = [];
+    for (const email in groups) {
+        const tests = groups[email].sort((a, b) => new Date(b.testingDate) - new Date(a.testingDate));
+        accounts.push({ email, queuePercent: tests[0].queuePercent });
+    }
+
+    // Sort by best queue (lowest %) — best at bottom due to column-reverse
+    accounts.sort((a, b) => a.queuePercent - b.queuePercent);
+
+    // Only show top 10
+    const top = accounts.slice(0, 10);
+
+    if (top.length === 0) {
+        strip.style.display = 'none';
+        return;
+    }
+
+    strip.style.display = 'block';
+    list.innerHTML = '';
+
+    top.forEach((account, i) => {
+        const item = document.createElement('div');
+        item.className = 'best-queue-item';
+        // Only 1-5% is "great"
+        if (account.queuePercent >= 1 && account.queuePercent <= 5) {
+            item.classList.add('great');
+        }
+        item.style.animationDelay = (i * 0.06) + 's';
+
+        const emailSpan = document.createElement('span');
+        emailSpan.className = 'best-queue-email';
+        emailSpan.textContent = account.email;
+
+        const pctSpan = document.createElement('span');
+        pctSpan.className = 'best-queue-pct';
+        pctSpan.textContent = account.queuePercent.toFixed(1) + '%';
+
+        item.appendChild(emailSpan);
+        item.appendChild(pctSpan);
+        list.appendChild(item);
+    });
 }
 
 function getTableData() {
